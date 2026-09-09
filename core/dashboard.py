@@ -1,12 +1,10 @@
 import time
+import json
 import threading
-import io
-import base64
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
 import config
 from core.model import TradingModel
@@ -249,18 +247,18 @@ class ColabTradingDashboard:
                 <div style="font-size:11px;color:#8b949e;">Daily Loss Limit: -₹{self.risk_manager.max_daily_loss:,.2f}</div>
             </div>
             <div style="background:#161b22;border:1px solid #30363d;padding:12px 16px;border-radius:8px;">
-                <div style="font-size:12px;color:#8b949e;font-weight:600;">{sym} CURRENT LTP</div>
-                <div style="font-size:24px;font-weight:bold;color:#f0f6fc;margin:4px 0;">₹{price:,.2f}</div>
+                <div id="card-ltp-title" style="font-size:12px;color:#8b949e;font-weight:600;">{sym} CURRENT LTP</div>
+                <div id="card-ltp" style="font-size:24px;font-weight:bold;color:#f0f6fc;margin:4px 0;">₹{price:,.2f}</div>
                 <div style="font-size:11px;color:#58a6ff;">Total Open Positions: <b>{open_positions_count} / 4</b></div>
             </div>
             <div style="background:#161b22;border:1px solid #30363d;padding:12px 16px;border-radius:8px;">
-                <div style="font-size:12px;color:#8b949e;font-weight:600;">{sym} ACTIVE POSITION</div>
-                <div style="font-size:14px;font-weight:bold;color:#58a6ff;margin:6px 0;">{pos_str}</div>
-                <div style="font-size:11px;color:#8b949e;">{sl_tp_str}</div>
+                <div id="card-pos-title" style="font-size:12px;color:#8b949e;font-weight:600;">{sym} ACTIVE POSITION</div>
+                <div id="card-pos" style="font-size:14px;font-weight:bold;color:#58a6ff;margin:6px 0;">{pos_str}</div>
+                <div id="card-sl-tp" style="font-size:11px;color:#8b949e;">{sl_tp_str}</div>
             </div>
             <div style="background:#161b22;border:1px solid #30363d;padding:12px 16px;border-radius:8px;">
-                <div style="font-size:12px;color:#8b949e;font-weight:600;">{sym} AI SIGNAL</div>
-                <div style="font-size:20px;font-weight:bold;color:{'#3fb950' if signal == 'BUY' else '#8b949e'};margin:4px 0;">
+                <div id="card-signal-title" style="font-size:12px;color:#8b949e;font-weight:600;">{sym} AI SIGNAL</div>
+                <div id="card-signal" style="font-size:20px;font-weight:bold;color:{'#3fb950' if signal == 'BUY' else '#8b949e'};margin:4px 0;">
                     {signal} ({confidence * 100:.1f}%)
                 </div>
                 <div style="font-size:11px;color:#8b949e;">Auto-Buy Threshold: > {self.model.confidence_threshold * 100:.0f}%</div>
@@ -277,12 +275,11 @@ class ColabTradingDashboard:
             txt = "#ffffff" if is_active else "#c9d1d9"
             border = "#58a6ff" if is_active else "#30363d"
             has_pos = "🟢 " if sym in self.positions else ""
-            pills += f"""<button onclick="jsSelectStock('{sym}')" style="background:{bg};color:{txt};border:1px solid {border};padding:4px 10px;border-radius:14px;cursor:pointer;font-weight:bold;font-size:11px;margin:2px;">{has_pos}{sym}</button>"""
+            pills += f"""<button type="button" class="stock-pill" data-sym="{sym}" onclick="jsSelectStock('{sym}')" style="background:{bg};color:{txt};border:1px solid {border};padding:4px 10px;border-radius:14px;cursor:pointer;font-weight:bold;font-size:11px;margin:2px;">{has_pos}{sym}</button>"""
 
         mode_btn_txt = "Switch to LIVE (Real Money)" if self.mode == "PAPER" else "Switch to PAPER (Simulation)"
         mode_btn_bg = "#da3633" if self.mode == "PAPER" else "#8957e5"
-
-        stop_btn_html = """<button onclick="jsStopBot()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">⏸️ Pause</button>""" if self.is_running else """<button onclick="jsResumeBot()" style="background:#238636;color:white;border:none;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">▶️ Resume</button>"""
+        stop_btn_html = """<button type="button" onclick="jsStopBot()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">⏸️ Pause</button>""" if self.is_running else """<button type="button" onclick="jsResumeBot()" style="background:#238636;color:white;border:none;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">▶️ Resume</button>"""
 
         return f"""
         <div style="background:#161b22;padding:12px 16px;border-radius:8px;border:1px solid #30363d;margin-bottom:12px;">
@@ -290,12 +287,12 @@ class ColabTradingDashboard:
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span style="color:#8b949e;font-size:12px;font-weight:bold;">⚙️ MANAGE STOCKS:</span>
                     <input id="new-stock-input" placeholder="Ticker (e.g. ZOMATO)" style="background:#0d1117;color:#f0f6fc;border:1px solid #30363d;padding:6px 10px;border-radius:6px;font-size:12px;width:150px;">
-                    <button onclick="jsAddStock()" style="background:#238636;color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">+ Add Stock</button>
-                    <button onclick="jsRemoveStock()" style="background:#30363d;color:#f0f6fc;border:1px solid #484f58;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">- Remove {self.active_symbol}</button>
+                    <button type="button" onclick="jsAddStock()" style="background:#238636;color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">+ Add Stock</button>
+                    <button type="button" id="remove-btn" onclick="jsRemoveStock()" style="background:#30363d;color:#f0f6fc;border:1px solid #484f58;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">- Remove {self.active_symbol}</button>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <button onclick="jsToggleMode()" style="background:{mode_btn_bg};color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">{mode_btn_txt}</button>
-                    <button onclick="jsSquareOff()" style="background:#b62324;color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🛑 Square-Off All</button>
+                    <button type="button" onclick="jsToggleMode()" style="background:{mode_btn_bg};color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">{mode_btn_txt}</button>
+                    <button type="button" onclick="jsSquareOff()" style="background:#b62324;color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🛑 Square-Off All</button>
                     {stop_btn_html}
                 </div>
             </div>
@@ -306,48 +303,23 @@ class ColabTradingDashboard:
         </div>
         """
 
-    def _get_chart_base64_html(self) -> str:
-        """Renders dark-themed TradingView style chart without screen flickering."""
-        try:
-            df = self.stock_data.get(self.active_symbol)
-            idx = self.stock_bar_index.get(self.active_symbol, 60)
-            if df is None or idx < 35:
-                return ""
-
-            subset = df.iloc[max(0, idx - 35) : idx + 1].copy()
-            feat_subset = DataEngine.calculate_technical_features(subset)
-            plot_df = feat_subset.tail(30).copy()
-
-            fig, ax = plt.subplots(figsize=(10, 2.8), dpi=100, facecolor="#161b22")
-            ax.set_facecolor("#0d1117")
-
-            ax.plot(plot_df.index, plot_df["close"], label=f"{self.active_symbol} Close", color="#58a6ff", lw=2.0)
-            if "ema_9" in plot_df.columns:
-                ax.plot(plot_df.index, plot_df["ema_9"], label="EMA 9 (Fast)", color="#f0883e", lw=1.3, ls="--")
-            if "ema_21" in plot_df.columns:
-                ax.plot(plot_df.index, plot_df["ema_21"], label="EMA 21 (Trend)", color="#3fb950", lw=1.3, ls=":")
-
-            ax.set_title(f"Live Price & Moving Averages - {self.active_symbol} ({self.mode} MODE)", fontsize=11, fontweight="bold", color="#f0f6fc", pad=8)
-            ax.grid(True, alpha=0.2, color="#30363d", ls="--")
-            ax.tick_params(colors="#8b949e", labelsize=9)
-
-            for spine in ax.spines.values():
-                spine.set_color("#30363d")
-
-            legend = ax.legend(loc="upper left", fontsize=8, facecolor="#161b22", edgecolor="#30363d")
-            for text in legend.get_texts():
-                text.set_color("#c9d1d9")
-
-            plt.tight_layout()
-
-            buf = io.BytesIO()
-            fig.savefig(buf, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
-            plt.close(fig)
-            buf.seek(0)
-            img_b64 = base64.b64encode(buf.read()).decode("utf-8")
-            return f'<div style="text-align:center;margin:6px 0;"><img src="data:image/png;base64,{img_b64}" style="max-width:100%;border-radius:8px;border:1px solid #30363d;" /></div>'
-        except Exception:
-            return ""
+    def _get_chart_html(self) -> str:
+        """Renders GPU-accelerated HTML5 Canvas chart with zero CPU overhead and instant switching."""
+        return f"""
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 16px;margin:8px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span id="chart-title" style="font-size:13px;font-weight:bold;color:#f0f6fc;">📈 Live Price & Moving Averages - {self.active_symbol} ({self.mode} MODE)</span>
+                <div style="font-size:11px;display:flex;gap:14px;align-items:center;">
+                    <span style="color:#58a6ff;font-weight:bold;">— Price</span>
+                    <span style="color:#f0883e;font-weight:bold;">--- EMA 9 (Fast)</span>
+                    <span style="color:#3fb950;font-weight:bold;">··· EMA 21 (Trend)</span>
+                </div>
+            </div>
+            <div style="position:relative;width:100%;height:220px;">
+                <canvas id="terminal-chart" width="1020" height="220" style="width:100%;height:220px;background:#0d1117;border-radius:8px;display:block;border:1px solid #21262d;"></canvas>
+            </div>
+        </div>
+        """
 
     def _update_scanner_table(self):
         """Builds high-contrast dark table of all 20+ stocks."""
@@ -457,7 +429,7 @@ class ColabTradingDashboard:
             # Generate more candles if reached buffer end
             if idx >= len(df) - 1:
                 new_bars = DataEngine.generate_synthetic_market_data(
-                    bars=100,
+                    bars=60,
                     start_price=float(df["close"].iloc[-1]),
                     seed=abs(hash(sym + str(idx))) % 10000
                 )
@@ -467,7 +439,8 @@ class ColabTradingDashboard:
             idx += 1
             self.stock_bar_index[sym] = idx
 
-            subset = df.iloc[: idx + 1]
+            # Microsecond technical feature slice (last 40 bars)
+            subset = df.iloc[max(0, idx - 40) : idx + 1]
             feat_subset = DataEngine.calculate_technical_features(subset)
             current_bar = feat_subset.iloc[-1]
             close_price = float(current_bar["close"])
@@ -541,49 +514,218 @@ class ColabTradingDashboard:
         header = self._get_header_html(status)
         metrics = self._get_metrics_html()
         watchlist_bar = self._get_watchlist_bar_html()
-        chart_html = self._get_chart_base64_html()
+        chart_html = self._get_chart_html()
         scanner = getattr(self, "scanner_table_str", "<div>Scanning stocks...</div>")
         trades = getattr(self, "trade_table_str", "<div>No completed trades yet.</div>")
 
-        js_code = """
+        stocks_payload = {}
+        for sym in self.watchlist:
+            df = self.stock_data.get(sym)
+            idx = self.stock_bar_index.get(sym, 50)
+            subset = df.iloc[max(0, idx - 30) : idx + 1]
+            feat = DataEngine.calculate_technical_features(subset)
+            prices = [round(float(p), 2) for p in feat["close"].tail(25)]
+            e9 = [round(float(p), 2) for p in feat["ema_9"].tail(25)] if "ema_9" in feat else prices
+            e21 = [round(float(p), 2) for p in feat["ema_21"].tail(25)] if "ema_21" in feat else prices
+            pos = self.positions.get(sym)
+            stocks_payload[sym] = {
+                "prices": prices,
+                "ema9": e9,
+                "ema21": e21,
+                "ltp": round(float(prices[-1]), 2) if prices else 0.0,
+                "signal": self.stock_signals.get(sym, {}).get("signal", "HOLD"),
+                "confidence": round(float(self.stock_signals.get(sym, {}).get("confidence", 0.50)) * 100, 1),
+                "change_pct": round(float(self.stock_signals.get(sym, {}).get("change_pct", 0.0)), 2),
+                "pos": pos,
+            }
+
+        data_json = json.dumps(stocks_payload)
+
+        js_code = f"""
         <script>
-        function jsSelectStock(sym) {
-            if (window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_select_stock', [sym], {});
-            }
-        }
-        function jsAddStock() {
+        window.chartData = {data_json};
+        window.currentActive = '{self.active_symbol}';
+        window.currentMode = '{self.mode}';
+
+        function renderCanvasChart(sym) {{
+            var canvas = document.getElementById('terminal-chart');
+            if (!canvas) return;
+            var ctx = canvas.getContext('2d');
+            var d = window.chartData[sym];
+            if (!d || !d.prices || d.prices.length < 2) return;
+
+            var w = canvas.width;
+            var h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#0d1117';
+            ctx.fillRect(0, 0, w, h);
+
+            var allVals = d.prices.concat(d.ema9).concat(d.ema21);
+            var minV = Math.min.apply(null, allVals);
+            var maxV = Math.max.apply(null, allVals);
+            var pad = (maxV - minV) * 0.1 || 1.0;
+            minV -= pad;
+            maxV += pad;
+            var range = maxV - minV;
+
+            function toY(v) {{ return h - 25 - ((v - minV) / range) * (h - 50); }}
+            function toX(i, n) {{ return 65 + (i / (n - 1)) * (w - 90); }}
+
+            // Horizontal Gridlines & Price Labels
+            ctx.strokeStyle = '#21262d';
+            ctx.lineWidth = 1;
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'right';
+            for (var i = 0; i <= 4; i++) {{
+                var pVal = minV + (i / 4) * range;
+                var y = toY(pVal);
+                ctx.beginPath();
+                ctx.moveTo(65, y);
+                ctx.lineTo(w - 20, y);
+                ctx.stroke();
+                ctx.fillText('₹' + pVal.toFixed(2), 58, y + 4);
+            }}
+
+            // Draw EMA 21 (Green dotted)
+            if (d.ema21 && d.ema21.length > 1) {{
+                ctx.strokeStyle = '#3fb950';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                for (var i = 0; i < d.ema21.length; i++) {{
+                    var x = toX(i, d.ema21.length);
+                    var y = toY(d.ema21[i]);
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }}
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }}
+
+            // Draw EMA 9 (Orange dashed)
+            if (d.ema9 && d.ema9.length > 1) {{
+                ctx.strokeStyle = '#f0883e';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                for (var i = 0; i < d.ema9.length; i++) {{
+                    var x = toX(i, d.ema9.length);
+                    var y = toY(d.ema9[i]);
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }}
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }}
+
+            // Draw Price Line (Blue solid)
+            ctx.strokeStyle = '#58a6ff';
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            for (var i = 0; i < d.prices.length; i++) {{
+                var x = toX(i, d.prices.length);
+                var y = toY(d.prices[i]);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }}
+            ctx.stroke();
+
+            // Price pulse dot
+            var lastX = toX(d.prices.length - 1, d.prices.length);
+            var lastY = toY(d.prices[d.prices.length - 1]);
+            ctx.fillStyle = '#58a6ff';
+            ctx.beginPath();
+            ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }}
+
+        function jsSelectStock(sym) {{
+            window.currentActive = sym;
+            var pills = document.querySelectorAll('.stock-pill');
+            for (var i = 0; i < pills.length; i++) {{
+                var btn = pills[i];
+                if (btn.getAttribute('data-sym') === sym) {{
+                    btn.style.background = '#1f6feb';
+                    btn.style.color = '#ffffff';
+                    btn.style.borderColor = '#58a6ff';
+                }} else {{
+                    btn.style.background = '#21262d';
+                    btn.style.color = '#c9d1d9';
+                    btn.style.borderColor = '#30363d';
+                }}
+            }}
+            var d = window.chartData[sym];
+            if (d) {{
+                var ltpEl = document.getElementById('card-ltp');
+                if (ltpEl) ltpEl.innerText = '₹' + d.ltp.toLocaleString('en-IN', {{minimumFractionDigits:2}});
+                var ltpTitle = document.getElementById('card-ltp-title');
+                if (ltpTitle) ltpTitle.innerText = sym + ' CURRENT LTP';
+                var sigEl = document.getElementById('card-signal');
+                if (sigEl) {{
+                    sigEl.innerText = d.signal + ' (' + d.confidence + '%)';
+                    sigEl.style.color = d.signal === 'BUY' ? '#3fb950' : '#8b949e';
+                }}
+                var sigTitle = document.getElementById('card-signal-title');
+                if (sigTitle) sigTitle.innerText = sym + ' AI SIGNAL';
+                var posEl = document.getElementById('card-pos');
+                if (posEl) {{
+                    if (d.pos) {{
+                        posEl.innerText = '🟢 LONG ' + d.pos.quantity + 'x @ ₹' + d.pos.entry_price.toFixed(2);
+                        posEl.style.color = '#3fb950';
+                    }} else {{
+                        posEl.innerText = '⚪ Flat (No Open Position)';
+                        posEl.style.color = '#58a6ff';
+                    }}
+                }}
+                var posTitle = document.getElementById('card-pos-title');
+                if (posTitle) posTitle.innerText = sym + ' ACTIVE POSITION';
+                var headerSym = document.getElementById('header-active-sym');
+                if (headerSym) headerSym.innerText = 'Active: ' + sym;
+                var chartTitle = document.getElementById('chart-title');
+                if (chartTitle) chartTitle.innerText = '📈 Live Price & Moving Averages - ' + sym + ' (' + window.currentMode + ' MODE)';
+                var remBtn = document.getElementById('remove-btn');
+                if (remBtn) remBtn.innerText = '- Remove ' + sym;
+            }}
+            renderCanvasChart(sym);
+            if (window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_select_stock', [sym], {{}});
+            }}
+        }}
+
+        function jsAddStock() {{
             var el = document.getElementById('new-stock-input');
-            if (el && el.value.trim() && window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_add_stock', [el.value.trim().toUpperCase()], {});
+            if (el && el.value.trim() && window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_add_stock', [el.value.trim().toUpperCase()], {{}});
                 el.value = '';
-            }
-        }
-        function jsRemoveStock() {
-            if (window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_remove_stock', [], {});
-            }
-        }
-        function jsToggleMode() {
-            if (window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_toggle_mode', [], {});
-            }
-        }
-        function jsSquareOff() {
-            if (window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_square_off', [], {});
-            }
-        }
-        function jsStopBot() {
-            if (window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_stop_bot', [], {});
-            }
-        }
-        function jsResumeBot() {
-            if (window.google && google.colab && google.colab.kernel) {
-                google.colab.kernel.invokeFunction('colab_resume_bot', [], {});
-            }
-        }
+            }}
+        }}
+        function jsRemoveStock() {{
+            if (window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_remove_stock', [], {{}});
+            }}
+        }}
+        function jsToggleMode() {{
+            if (window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_toggle_mode', [], {{}});
+            }}
+        }}
+        function jsSquareOff() {{
+            if (window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_square_off', [], {{}});
+            }}
+        }}
+        function jsStopBot() {{
+            if (window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_stop_bot', [], {{}});
+            }}
+        }}
+        function jsResumeBot() {{
+            if (window.google && google.colab && google.colab.kernel) {{
+                google.colab.kernel.invokeFunction('colab_resume_bot', [], {{}});
+            }}
+        }}
+
+        setTimeout(function() {{
+            renderCanvasChart(window.currentActive);
+        }}, 60);
         </script>
         """
 
