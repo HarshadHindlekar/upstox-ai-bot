@@ -108,7 +108,12 @@ def main():
     config.init_storage(mount_drive=True)
     log(f"Storage path ready at: {config.DATA_DIR.parent}", status="SUCCESS")
 
-    # 4. Model Verification & Auto-Train
+    # 4. Token & Authentication Check (Auto-generates & saves fresh token if expired)
+    from core.auth import UpstoxAuth
+    auth = UpstoxAuth()
+    has_live_auth = auth.ensure_valid_token_interactive()
+
+    # 5. Model Verification & Auto-Train
     from core.model import TradingModel
     from core.data_engine import DataEngine
     model = TradingModel()
@@ -122,7 +127,8 @@ def main():
     else:
         log("Existing trained AI model found and loaded from persistent storage.", status="SUCCESS")
 
-    # 5. Quick Healthcheck Backtest
+    # 6. Quick Healthcheck Backtest
+
     from core.risk_manager import RiskManager
     from core.backtester import Backtester
     log("Running strategy health-check backtest...", status="INFO")
@@ -143,8 +149,10 @@ def main():
 
     if is_notebook:
         log("Launching In-Colab Interactive Live Dashboard with Keep-Alive UI...", status="SUCCESS")
-        from core.dashboard import ColabTradingDashboard
-        dashboard = ColabTradingDashboard(symbol=config.DEFAULT_SYMBOL, use_sample_data=True)
+        dashboard = ColabTradingDashboard(
+            symbol=config.DEFAULT_SYMBOL,
+            use_sample_data=not has_live_auth,
+        )
         dashboard.render()
     else:
         log("Running in CLI terminal mode. Starting Paper Trading loop...", status="INFO")
