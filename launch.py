@@ -149,6 +149,7 @@ def main():
 
     if is_notebook:
         log("Launching In-Colab Interactive Live Dashboard with Keep-Alive UI...", status="SUCCESS")
+        from core.dashboard import ColabTradingDashboard
         dashboard = ColabTradingDashboard(
             symbol=config.DEFAULT_SYMBOL,
             use_sample_data=not has_live_auth,

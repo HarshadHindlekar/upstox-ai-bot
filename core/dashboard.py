@@ -45,8 +45,21 @@ class ColabTradingDashboard:
             symbol=self.symbol,
         )
 
-        # Simulation data buffer
-        self.raw_data = DataEngine.generate_synthetic_market_data(bars=350, seed=42)
+        # Simulation / Live data buffer
+        if not self.use_sample_data and config.UPSTOX_ACCESS_TOKEN:
+            try:
+                engine = DataEngine()
+                live_df = engine.fetch_historical_candles(instrument_key=config.DEFAULT_INSTRUMENT_KEY)
+                if not live_df.empty and len(live_df) >= 70:
+                    self.raw_data = live_df
+                    print(f"[DASHBOARD] Loaded {len(live_df)} live market candles for {self.symbol}.")
+                else:
+                    self.raw_data = DataEngine.generate_synthetic_market_data(bars=350, seed=42)
+            except Exception as e:
+                print(f"[DASHBOARD] Live candle fetch note ({e}). Using simulation feed.")
+                self.raw_data = DataEngine.generate_synthetic_market_data(bars=350, seed=42)
+        else:
+            self.raw_data = DataEngine.generate_synthetic_market_data(bars=350, seed=42)
         self.current_bar_index = 60
         self.is_running = False
         self.is_paused = False
