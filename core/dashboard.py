@@ -89,6 +89,8 @@ class ColabTradingDashboard:
             output.register_callback("colab_select_stock", self.select_stock)
             output.register_callback("colab_toggle_mode", self.toggle_mode)
             output.register_callback("colab_square_off", self.emergency_square_off)
+            output.register_callback("colab_stop_bot", self.stop)
+            output.register_callback("colab_resume_bot", self.resume)
         except Exception:
             pass
 
@@ -182,6 +184,20 @@ class ColabTradingDashboard:
         print("\n[SAFETY] All open positions squared off immediately.")
         self._refresh_display()
 
+    def stop(self):
+        self.is_running = False
+        print("\n[INFO] Bot scanning stopped by user.")
+        self._refresh_display()
+
+    def resume(self):
+        if not self.is_running:
+            self.is_running = True
+            import threading
+            self._bg_thread = threading.Thread(target=self._run_background_loop, daemon=True)
+            self._bg_thread.start()
+            print("\n[INFO] Bot scanning resumed.")
+            self._refresh_display()
+
     # ==========================================
     # High-Contrast Dark UI HTML Generators
     # ==========================================
@@ -266,6 +282,8 @@ class ColabTradingDashboard:
         mode_btn_txt = "Switch to LIVE (Real Money)" if self.mode == "PAPER" else "Switch to PAPER (Simulation)"
         mode_btn_bg = "#da3633" if self.mode == "PAPER" else "#8957e5"
 
+        stop_btn_html = """<button onclick="jsStopBot()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">⏸️ Pause</button>""" if self.is_running else """<button onclick="jsResumeBot()" style="background:#238636;color:white;border:none;padding:6px 10px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">▶️ Resume</button>"""
+
         return f"""
         <div style="background:#161b22;padding:12px 16px;border-radius:8px;border:1px solid #30363d;margin-bottom:12px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -278,6 +296,7 @@ class ColabTradingDashboard:
                 <div style="display:flex;align-items:center;gap:8px;">
                     <button onclick="jsToggleMode()" style="background:{mode_btn_bg};color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">{mode_btn_txt}</button>
                     <button onclick="jsSquareOff()" style="background:#b62324;color:white;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🛑 Square-Off All</button>
+                    {stop_btn_html}
                 </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
@@ -529,30 +548,40 @@ class ColabTradingDashboard:
         js_code = """
         <script>
         function jsSelectStock(sym) {
-            if (window.google && google.colab) {
+            if (window.google && google.colab && google.colab.kernel) {
                 google.colab.kernel.invokeFunction('colab_select_stock', [sym], {});
             }
         }
         function jsAddStock() {
             var el = document.getElementById('new-stock-input');
-            if (el && el.value.trim() && window.google && google.colab) {
+            if (el && el.value.trim() && window.google && google.colab && google.colab.kernel) {
                 google.colab.kernel.invokeFunction('colab_add_stock', [el.value.trim().toUpperCase()], {});
                 el.value = '';
             }
         }
         function jsRemoveStock() {
-            if (window.google && google.colab) {
+            if (window.google && google.colab && google.colab.kernel) {
                 google.colab.kernel.invokeFunction('colab_remove_stock', [], {});
             }
         }
         function jsToggleMode() {
-            if (window.google && google.colab) {
+            if (window.google && google.colab && google.colab.kernel) {
                 google.colab.kernel.invokeFunction('colab_toggle_mode', [], {});
             }
         }
         function jsSquareOff() {
-            if (window.google && google.colab) {
+            if (window.google && google.colab && google.colab.kernel) {
                 google.colab.kernel.invokeFunction('colab_square_off', [], {});
+            }
+        }
+        function jsStopBot() {
+            if (window.google && google.colab && google.colab.kernel) {
+                google.colab.kernel.invokeFunction('colab_stop_bot', [], {});
+            }
+        }
+        function jsResumeBot() {
+            if (window.google && google.colab && google.colab.kernel) {
+                google.colab.kernel.invokeFunction('colab_resume_bot', [], {});
             }
         }
         </script>
@@ -572,6 +601,19 @@ class ColabTradingDashboard:
         </div>
         """
 
+    def _run_background_loop(self):
+        """Runs continuous scanning and chart updating in a background thread."""
+        while self.is_running:
+            time.sleep(self.update_interval_sec)
+            if self.is_running:
+                try:
+                    self.scan_all_stocks_step()
+                    if hasattr(self, "display_handle") and self.display_handle is not None:
+                        from IPython.display import HTML
+                        self.display_handle.update(HTML(self.get_full_dashboard_html()))
+                except Exception:
+                    pass
+
     def render(self, run_loop: bool = True):
         """Renders the complete multi-stock dashboard in Google Colab with in-place zero-flicker updates."""
         from IPython.display import display, HTML
@@ -579,18 +621,18 @@ class ColabTradingDashboard:
         # Initial scan
         self.scan_all_stocks_step()
 
-        # Create persistent display handle with display_id=True
+        # Create persistent display handle with display_id
         full_html = self.get_full_dashboard_html()
-        self.display_handle = display(HTML(full_html), display_id=True)
+        self.display_handle = display(HTML(full_html), display_id="upstox_ai_dashboard")
 
         if run_loop:
-            try:
-                while self.is_running:
-                    time.sleep(self.update_interval_sec)
-                    if self.is_running:
-                        self.scan_all_stocks_step()
-                        # Smooth in-place DOM update without clearing the screen
-                        if hasattr(self, "display_handle") and self.display_handle is not None:
-                            self.display_handle.update(HTML(self.get_full_dashboard_html()))
-            except KeyboardInterrupt:
-                print("\n[INFO] Dashboard stopped by user.")
+            import threading
+            self.is_running = True
+            if hasattr(self, "_bg_thread") and self._bg_thread and self._bg_thread.is_alive():
+                self.is_running = False
+                time.sleep(0.3)
+                self.is_running = True
+
+            self._bg_thread = threading.Thread(target=self._run_background_loop, daemon=True)
+            self._bg_thread.start()
+            print("[INFO] Multi-stock engine active in background. All clicks & controls are now 100% responsive.")
