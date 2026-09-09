@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 import pandas as pd
 import numpy as np
+import io
+import base64
 import matplotlib.pyplot as plt
 
 import config
@@ -612,19 +614,19 @@ class ColabTradingDashboard:
         self._update_trade_table()
         self.scan_all_stocks_step()
 
-    def _render_chart_native(self):
-        """Renders chart using standard Matplotlib (works in 100% of Colab sessions)."""
+    def _get_chart_base64_html(self) -> str:
+        """Encodes Matplotlib chart to Base64 image tag for 100% flicker-free in-place updates."""
         try:
             df = self.stock_data.get(self.active_symbol)
             idx = self.stock_bar_index.get(self.active_symbol, 60)
             if df is None or idx < 35:
-                return
+                return ""
 
             subset = df.iloc[max(0, idx - 35) : idx + 1].copy()
             feat_subset = DataEngine.calculate_technical_features(subset)
             plot_df = feat_subset.tail(30).copy()
 
-            fig, ax = plt.subplots(figsize=(10, 3.0), dpi=100)
+            fig, ax = plt.subplots(figsize=(10, 2.9), dpi=100)
             ax.plot(plot_df.index, plot_df["close"], label=f"{self.active_symbol} Close", color="#1f77b4", lw=2.0)
             if "ema_9" in plot_df.columns:
                 ax.plot(plot_df.index, plot_df["ema_9"], label="EMA 9", color="#ff7f0e", lw=1.2, ls="--")
@@ -635,50 +637,60 @@ class ColabTradingDashboard:
             ax.grid(True, alpha=0.3, ls="--")
             ax.legend(loc="upper left", fontsize=8)
             plt.tight_layout()
-            plt.show()
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight")
             plt.close(fig)
+            buf.seek(0)
+            img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+            return f'<div style="text-align:center;margin:8px 0;"><img src="data:image/png;base64,{img_b64}" style="max-width:100%;border-radius:8px;border:1px solid #e0e0e0;" /></div>'
         except Exception:
-            pass
+            return ""
 
-    def render_native_frame(self):
-        """Renders the dashboard natively using standard IPython HTML & Matplotlib (zero widget manager needed)."""
-        try:
-            from IPython.display import clear_output, display, HTML
-            clear_output(wait=True)
+    def get_full_dashboard_html(self) -> str:
+        """Generates unified dashboard HTML payload for in-place flicker-free rendering."""
+        status = "KILLED" if self.risk_manager.kill_switch_triggered else "PAUSED" if self.is_paused else "RUNNING"
+        header = self._get_header_html(status)
+        metrics = self._get_metrics_html()
+        chart_html = self._get_chart_base64_html()
+        scanner = getattr(self, "scanner_table_str", "<div>Scanning stocks...</div>")
+        trades = getattr(self, "trade_table_str", "<div>No completed trades yet.</div>")
 
-            status = "KILLED" if self.risk_manager.kill_switch_triggered else "PAUSED" if self.is_paused else "RUNNING"
-            display(HTML(self._get_header_html(status)))
-            display(HTML(self._get_metrics_html()))
-
-            # Render live Matplotlib chart
-            self._render_chart_native()
-
-            # Render 20+ Stocks Live Multi-Scanner Table
-            display(HTML("<h4 style='margin:12px 0 6px 0;color:#222;font-family:sans-serif;'>📊 20+ Stocks Live Multi-Scanner:</h4>"))
-            display(HTML(getattr(self, "scanner_table_str", "<div>Scanning stocks...</div>")))
-
-            # Render Completed Trades History
-            display(HTML("<h4 style='margin:12px 0 6px 0;color:#222;font-family:sans-serif;'>📜 Completed Trades History:</h4>"))
-            display(HTML(getattr(self, "trade_table_str", "<div>No completed trades yet.</div>")))
-        except Exception as e:
-            print(f"[UI RENDER NOTE] {e}")
+        return f"""
+        <div id="upstox-dashboard-container" style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:1000px;margin:0 auto;background:#fdfdfd;padding:12px;border-radius:10px;border:1px solid #e0e0e0;">
+            {header}
+            {metrics}
+            {chart_html}
+            <h4 style="margin:14px 0 6px 0;color:#222;">📊 20+ Stocks Live Multi-Scanner:</h4>
+            {scanner}
+            <h4 style="margin:14px 0 6px 0;color:#222;">📜 Completed Trades History:</h4>
+            {trades}
+        </div>
+        """
 
     def render(self, run_loop: bool = True):
-        """Renders the complete multi-stock dashboard natively in Google Colab with zero permission prompts."""
-        # Initial scan and frame render
+        """Renders the complete multi-stock dashboard in Google Colab with ZERO flickering."""
+        from IPython.display import display, HTML
+
+        # Initial scan
         self.scan_all_stocks_step()
-        self.render_native_frame()
+
+        # Create persistent display handle with display_id=True
+        full_html = self.get_full_dashboard_html()
+        self.display_handle = display(HTML(full_html), display_id=True)
 
         if run_loop:
-            print(f"\n[INFO] Live scanning {len(self.watchlist)} stocks... Press the Stop button on this cell to halt.")
             try:
                 while self.is_running:
-                    time.sleep(self.update_interval_sec)
+                    time.sleep(3.0)
                     if self.is_running:
                         self.scan_all_stocks_step()
-                        self.render_native_frame()
+                        # Smooth in-place DOM update without clearing the screen
+                        if hasattr(self, "display_handle") and self.display_handle is not None:
+                            self.display_handle.update(HTML(self.get_full_dashboard_html()))
             except KeyboardInterrupt:
                 print("\n[INFO] Dashboard stopped by user.")
+
 
 
 
