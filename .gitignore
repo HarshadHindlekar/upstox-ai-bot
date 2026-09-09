@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Credentials and sensitive tokens
+.env
+*.env
+*.token
+access_token.txt
+tokens/
+secrets/
+
+# Data & Models (Stored in Google Drive during Colab execution)
+data/*.csv
+data/*.parquet
+models/*.joblib
+models/*.pkl
+logs/*.log
+logs/*.csv
+!data/.gitkeep
+!models/.gitkeep
+!logs/.gitkeep
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
