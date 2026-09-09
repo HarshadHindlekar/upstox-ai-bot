@@ -165,6 +165,11 @@ def main():
 
     if is_notebook:
         log("Launching In-Colab Interactive Live Dashboard with Keep-Alive UI...", status="SUCCESS")
+        try:
+            from google.colab import output
+            output.enable_custom_widget_manager()
+        except Exception:
+            pass
         import core.dashboard
         importlib.reload(core.dashboard)
         from core.dashboard import ColabTradingDashboard

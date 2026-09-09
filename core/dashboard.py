@@ -608,7 +608,13 @@ class ColabTradingDashboard:
         if not self._has_widgets:
             print("[ERROR] ipywidgets is required to render dashboard. Run: pip install ipywidgets")
             return
+        try:
+            from google.colab import output
+            output.enable_custom_widget_manager()
+        except Exception:
+            pass
         self.display(self.container)
         self.scan_all_stocks_step()
         self._loop_thread = threading.Thread(target=self._loop_worker, daemon=True)
         self._loop_thread.start()
+
