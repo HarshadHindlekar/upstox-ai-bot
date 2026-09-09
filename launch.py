@@ -51,7 +51,7 @@ def ensure_dependencies():
     required = [
         "pandas", "numpy", "scikit-learn", "lightgbm", "joblib",
         "requests", "pyotp", "python-dotenv", "rich", "tabulate",
-        "matplotlib", "ipywidgets"
+        "matplotlib", "ipywidgets", "nest_asyncio"
     ]
     missing = []
     for pkg in required:

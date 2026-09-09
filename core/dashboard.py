@@ -601,10 +601,11 @@ class ColabTradingDashboard:
         </div>
         """
 
-    def _run_background_loop(self):
-        """Runs continuous scanning and chart updating in a background thread."""
+    async def _run_async_loop(self):
+        """Asynchronous execution loop yielding to Colab event loop so clicks execute instantly."""
+        import asyncio
         while self.is_running:
-            time.sleep(self.update_interval_sec)
+            await asyncio.sleep(self.update_interval_sec)
             if self.is_running:
                 try:
                     self.scan_all_stocks_step()
@@ -626,13 +627,24 @@ class ColabTradingDashboard:
         self.display_handle = display(HTML(full_html), display_id="upstox_ai_dashboard")
 
         if run_loop:
-            import threading
-            self.is_running = True
-            if hasattr(self, "_bg_thread") and self._bg_thread and self._bg_thread.is_alive():
-                self.is_running = False
-                time.sleep(0.3)
-                self.is_running = True
+            import asyncio
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+            except ImportError:
+                import subprocess, sys
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "nest_asyncio"])
+                import nest_asyncio
+                nest_asyncio.apply()
 
-            self._bg_thread = threading.Thread(target=self._run_background_loop, daemon=True)
-            self._bg_thread.start()
-            print("[INFO] Multi-stock engine active in background. All clicks & controls are now 100% responsive.")
+            self.is_running = True
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.run_until_complete(self._run_async_loop())
+                else:
+                    asyncio.run(self._run_async_loop())
+            except KeyboardInterrupt:
+                print("\n[INFO] Dashboard stopped by user.")
+            except Exception as e:
+                print(f"\n[INFO] Dashboard session ended: {e}")
