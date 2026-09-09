@@ -603,18 +603,23 @@ class ColabTradingDashboard:
         self._update_trade_table()
         self.scan_all_stocks_step()
 
-    def render(self):
+    def render(self, run_loop: bool = True):
         """Renders the complete multi-stock dashboard in Google Colab."""
         if not self._has_widgets:
             print("[ERROR] ipywidgets is required to render dashboard. Run: pip install ipywidgets")
             return
-        try:
-            from google.colab import output
-            output.enable_custom_widget_manager()
-        except Exception:
-            pass
+
         self.display(self.container)
         self.scan_all_stocks_step()
-        self._loop_thread = threading.Thread(target=self._loop_worker, daemon=True)
-        self._loop_thread.start()
+
+        if run_loop:
+            print("[INFO] Live multi-stock scanner is running... (Click '⏹ Stop Loop' or stop cell to halt)")
+            try:
+                while self.is_running:
+                    time.sleep(self.update_interval_sec)
+                    if self.is_running:
+                        self.scan_all_stocks_step()
+            except KeyboardInterrupt:
+                print("\n[INFO] Dashboard stopped by user.")
+
 

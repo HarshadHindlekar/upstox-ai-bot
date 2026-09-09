@@ -165,11 +165,6 @@ def main():
 
     if is_notebook:
         log("Launching In-Colab Interactive Live Dashboard with Keep-Alive UI...", status="SUCCESS")
-        try:
-            from google.colab import output
-            output.enable_custom_widget_manager()
-        except Exception:
-            pass
         import core.dashboard
         importlib.reload(core.dashboard)
         from core.dashboard import ColabTradingDashboard
@@ -177,7 +172,7 @@ def main():
             symbol=config.DEFAULT_SYMBOL,
             use_sample_data=not has_live_auth,
         )
-        dashboard.render()
+        dashboard.render(run_loop=True)
     else:
         log("Running in CLI terminal mode. Starting Paper Trading loop...", status="INFO")
         import core.paper_trader
