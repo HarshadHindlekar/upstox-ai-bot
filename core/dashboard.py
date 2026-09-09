@@ -144,7 +144,6 @@ class ColabTradingDashboard:
         sym = str(symbol).strip().upper()
         if sym in self.watchlist:
             self.active_symbol = sym
-            self._refresh_display()
 
     def toggle_mode(self):
         if self.mode == "PAPER":
@@ -544,7 +543,12 @@ class ColabTradingDashboard:
         js_code = f"""
         <script>
         window.chartData = {data_json};
-        window.currentActive = '{self.active_symbol}';
+        var savedSym = null;
+        try {{
+            savedSym = sessionStorage.getItem('upstox_active_symbol');
+        }} catch(e) {{}}
+
+        window.currentActive = (savedSym && window.chartData[savedSym]) ? savedSym : '{self.active_symbol}';
         window.currentMode = '{self.mode}';
 
         function renderCanvasChart(sym) {{
@@ -637,8 +641,7 @@ class ColabTradingDashboard:
             ctx.fill();
         }}
 
-        function jsSelectStock(sym) {{
-            window.currentActive = sym;
+        function updateUI(sym) {{
             var pills = document.querySelectorAll('.stock-pill');
             for (var i = 0; i < pills.length; i++) {{
                 var btn = pills[i];
@@ -684,6 +687,14 @@ class ColabTradingDashboard:
                 var remBtn = document.getElementById('remove-btn');
                 if (remBtn) remBtn.innerText = '- Remove ' + sym;
             }}
+        }}
+
+        function jsSelectStock(sym) {{
+            window.currentActive = sym;
+            try {{
+                sessionStorage.setItem('upstox_active_symbol', sym);
+            }} catch(e) {{}}
+            updateUI(sym);
             renderCanvasChart(sym);
             if (window.google && google.colab && google.colab.kernel) {{
                 google.colab.kernel.invokeFunction('colab_select_stock', [sym], {{}});
@@ -724,8 +735,12 @@ class ColabTradingDashboard:
         }}
 
         setTimeout(function() {{
-            renderCanvasChart(window.currentActive);
-        }}, 60);
+            var active = window.currentActive;
+            if (window.chartData && window.chartData[active]) {{
+                updateUI(active);
+                renderCanvasChart(active);
+            }}
+        }}, 30);
         </script>
         """
 
