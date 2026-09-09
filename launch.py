@@ -96,6 +96,12 @@ def main():
 ===================================================================
     """)
 
+    # 0. Auto-sync repository to latest git code
+    try:
+        subprocess.run("git pull origin main", shell=True, capture_output=True)
+    except Exception:
+        pass
+
     # 1. Drive Mount
     setup_colab_drive()
 
@@ -109,11 +115,18 @@ def main():
     log(f"Storage path ready at: {config.DATA_DIR.parent}", status="SUCCESS")
 
     # 4. Token & Authentication Check (Auto-generates & saves fresh token if expired)
+    import importlib
+    import core.auth
+    importlib.reload(core.auth)
     from core.auth import UpstoxAuth
     auth = UpstoxAuth()
     has_live_auth = auth.ensure_valid_token_interactive()
 
     # 5. Model Verification & Auto-Train
+    import core.model
+    import core.data_engine
+    importlib.reload(core.model)
+    importlib.reload(core.data_engine)
     from core.model import TradingModel
     from core.data_engine import DataEngine
     model = TradingModel()
@@ -128,7 +141,10 @@ def main():
         log("Existing trained AI model found and loaded from persistent storage.", status="SUCCESS")
 
     # 6. Quick Healthcheck Backtest
-
+    import core.risk_manager
+    import core.backtester
+    importlib.reload(core.risk_manager)
+    importlib.reload(core.backtester)
     from core.risk_manager import RiskManager
     from core.backtester import Backtester
     log("Running strategy health-check backtest...", status="INFO")
@@ -138,7 +154,7 @@ def main():
     results = bt.run(feat_df)
     log(f"Health-check verified: {results.get('total_trades', 0)} simulated trades, Net P&L: ₹{results.get('net_pnl', 0):+,.2f}", status="SUCCESS")
 
-    # 6. Launch Execution
+    # 7. Launch Execution
     is_notebook = False
     try:
         from IPython import get_ipython
@@ -149,6 +165,8 @@ def main():
 
     if is_notebook:
         log("Launching In-Colab Interactive Live Dashboard with Keep-Alive UI...", status="SUCCESS")
+        import core.dashboard
+        importlib.reload(core.dashboard)
         from core.dashboard import ColabTradingDashboard
         dashboard = ColabTradingDashboard(
             symbol=config.DEFAULT_SYMBOL,
@@ -157,6 +175,8 @@ def main():
         dashboard.render()
     else:
         log("Running in CLI terminal mode. Starting Paper Trading loop...", status="INFO")
+        import core.paper_trader
+        importlib.reload(core.paper_trader)
         from core.paper_trader import PaperTrader
         trader = PaperTrader(model=model, risk_manager=RiskManager(), symbol=config.DEFAULT_SYMBOL)
         raw_sim = DataEngine.generate_synthetic_market_data(bars=150, seed=777)
@@ -164,6 +184,7 @@ def main():
         for i in range(50, len(feat_sim)):
             trader.process_new_bar(feat_sim.iloc[i], feat_sim.iloc[: i + 1])
         log(f"Simulation completed. Summary: {trader.get_summary()}", status="SUCCESS")
+
 
     print("\n===================================================================")
     print("   ✓ SYSTEM ACTIVE & HEALTHY")
