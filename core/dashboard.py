@@ -368,12 +368,17 @@ class ColabTradingDashboard:
             </table>
         </div>
         """
-        self.scanner_table_html.value = table
+        self.scanner_table_str = table
+        if self._has_widgets and hasattr(self, "scanner_table_html"):
+            self.scanner_table_html.value = table
 
     def _update_trade_table(self):
         trades = self.paper_trader.trade_history
         if not trades:
-            self.history_html.value = "<div style='padding:6px;color:#888;'>No completed trades yet.</div>"
+            empty_msg = "<div style='padding:6px;color:#888;'>No completed trades yet.</div>"
+            self.trade_table_str = empty_msg
+            if self._has_widgets and hasattr(self, "history_html"):
+                self.history_html.value = empty_msg
             return
 
         rows = ""
@@ -392,7 +397,7 @@ class ColabTradingDashboard:
             </tr>
             """
 
-        self.history_html.value = f"""
+        table = f"""
         <table style='width:100%;border-collapse:collapse;font-size:12px;background:white;'>
             <thead>
                 <tr style='background:#f1f3f5;text-align:left;'>
@@ -408,6 +413,10 @@ class ColabTradingDashboard:
             <tbody>{rows}</tbody>
         </table>
         """
+        self.trade_table_str = table
+        if self._has_widgets and hasattr(self, "history_html"):
+            self.history_html.value = table
+
 
     def scan_all_stocks_step(self):
         """Advances candles and scans all 20+ stocks for AI signals."""
@@ -603,23 +612,73 @@ class ColabTradingDashboard:
         self._update_trade_table()
         self.scan_all_stocks_step()
 
-    def render(self, run_loop: bool = True):
-        """Renders the complete multi-stock dashboard in Google Colab."""
-        if not self._has_widgets:
-            print("[ERROR] ipywidgets is required to render dashboard. Run: pip install ipywidgets")
-            return
+    def _render_chart_native(self):
+        """Renders chart using standard Matplotlib (works in 100% of Colab sessions)."""
+        try:
+            df = self.stock_data.get(self.active_symbol)
+            idx = self.stock_bar_index.get(self.active_symbol, 60)
+            if df is None or idx < 35:
+                return
 
-        self.display(self.container)
+            subset = df.iloc[max(0, idx - 35) : idx + 1].copy()
+            feat_subset = DataEngine.calculate_technical_features(subset)
+            plot_df = feat_subset.tail(30).copy()
+
+            fig, ax = plt.subplots(figsize=(10, 3.0), dpi=100)
+            ax.plot(plot_df.index, plot_df["close"], label=f"{self.active_symbol} Close", color="#1f77b4", lw=2.0)
+            if "ema_9" in plot_df.columns:
+                ax.plot(plot_df.index, plot_df["ema_9"], label="EMA 9", color="#ff7f0e", lw=1.2, ls="--")
+            if "ema_21" in plot_df.columns:
+                ax.plot(plot_df.index, plot_df["ema_21"], label="EMA 21", color="#2ca02c", lw=1.2, ls=":")
+
+            ax.set_title(f"Live Price & Moving Averages - {self.active_symbol} ({self.mode} MODE)", fontsize=11, fontweight="bold")
+            ax.grid(True, alpha=0.3, ls="--")
+            ax.legend(loc="upper left", fontsize=8)
+            plt.tight_layout()
+            plt.show()
+            plt.close(fig)
+        except Exception:
+            pass
+
+    def render_native_frame(self):
+        """Renders the dashboard natively using standard IPython HTML & Matplotlib (zero widget manager needed)."""
+        try:
+            from IPython.display import clear_output, display, HTML
+            clear_output(wait=True)
+
+            status = "KILLED" if self.risk_manager.kill_switch_triggered else "PAUSED" if self.is_paused else "RUNNING"
+            display(HTML(self._get_header_html(status)))
+            display(HTML(self._get_metrics_html()))
+
+            # Render live Matplotlib chart
+            self._render_chart_native()
+
+            # Render 20+ Stocks Live Multi-Scanner Table
+            display(HTML("<h4 style='margin:12px 0 6px 0;color:#222;font-family:sans-serif;'>📊 20+ Stocks Live Multi-Scanner:</h4>"))
+            display(HTML(getattr(self, "scanner_table_str", "<div>Scanning stocks...</div>")))
+
+            # Render Completed Trades History
+            display(HTML("<h4 style='margin:12px 0 6px 0;color:#222;font-family:sans-serif;'>📜 Completed Trades History:</h4>"))
+            display(HTML(getattr(self, "trade_table_str", "<div>No completed trades yet.</div>")))
+        except Exception as e:
+            print(f"[UI RENDER NOTE] {e}")
+
+    def render(self, run_loop: bool = True):
+        """Renders the complete multi-stock dashboard natively in Google Colab with zero permission prompts."""
+        # Initial scan and frame render
         self.scan_all_stocks_step()
+        self.render_native_frame()
 
         if run_loop:
-            print("[INFO] Live multi-stock scanner is running... (Click '⏹ Stop Loop' or stop cell to halt)")
+            print(f"\n[INFO] Live scanning {len(self.watchlist)} stocks... Press the Stop button on this cell to halt.")
             try:
                 while self.is_running:
                     time.sleep(self.update_interval_sec)
                     if self.is_running:
                         self.scan_all_stocks_step()
+                        self.render_native_frame()
             except KeyboardInterrupt:
                 print("\n[INFO] Dashboard stopped by user.")
+
 
 
