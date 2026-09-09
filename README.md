@@ -17,6 +17,7 @@ An end-to-end Machine Learning algorithmic trading system integrated with **Upst
   - Auto Stop-Loss & Take-Profit calculation.
   - Position sizing based on account capital and risk percentage.
   - **Hard Daily Loss Kill-Switch**: Automatically halts trading if daily drawdown crosses threshold.
+- **🖥️ In-Colab Live Interactive Dashboard**: Renders real-time candlestick & EMA charts, live P&L counters, and an **Emergency Square-Off** button directly in the notebook cell — actively streaming updates to prevent Colab idle timeouts!
 - **🎮 Safe Simulation Mode**: Default Paper Trading engine lets you test strategies with zero real capital risk.
 
 ---

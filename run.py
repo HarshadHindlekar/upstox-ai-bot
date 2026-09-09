@@ -180,15 +180,27 @@ def handle_live(dry_run: bool):
     console.print(f"Execution response: {res}")
 
 
+def handle_dashboard(use_sample_data: bool):
+    """Renders the interactive Colab Trading Dashboard."""
+    try:
+        from core.dashboard import ColabTradingDashboard
+        dashboard = ColabTradingDashboard(use_sample_data=use_sample_data)
+        dashboard.render()
+    except Exception as e:
+        console.print(f"[bold yellow][INFO] Dashboard interactive UI is optimized for Google Colab and Jupyter Notebooks.[/bold yellow]")
+        console.print(f"To view the interactive UI, open [cyan]notebooks/upstox_ai_colab.ipynb[/cyan] in Google Colab.")
+        console.print(f"Error detail: {e}")
+
+
 def main():
     print_banner()
 
     parser = argparse.ArgumentParser(description="Upstox AI Algorithmic Trading Bot")
     parser.add_argument(
         "--mode",
-        choices=["auth", "train", "backtest", "paper", "live"],
+        choices=["auth", "train", "backtest", "paper", "live", "dashboard"],
         default="paper",
-        help="Operating mode: auth, train, backtest, paper, or live (default: paper)",
+        help="Operating mode: auth, train, backtest, paper, live, or dashboard (default: paper)",
     )
     parser.add_argument(
         "--sample-data",
@@ -226,7 +238,10 @@ def main():
         handle_paper_trading(use_sample_data=args.sample_data, bars=args.bars)
     elif args.mode == "live":
         handle_live(dry_run=not args.live_real_money)
+    elif args.mode == "dashboard":
+        handle_dashboard(use_sample_data=args.sample_data)
 
 
 if __name__ == "__main__":
     main()
+
