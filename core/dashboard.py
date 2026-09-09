@@ -108,6 +108,17 @@ class ColabTradingDashboard:
                     "confidence": 0.50,
                 }
 
+    def _refresh_display(self):
+        """Immediately re-renders the dashboard when the user interacts."""
+        if hasattr(self, "display_handle") and self.display_handle is not None:
+            try:
+                from IPython.display import HTML
+                self._update_scanner_table()
+                self._update_trade_table()
+                self.display_handle.update(HTML(self.get_full_dashboard_html()))
+            except Exception:
+                pass
+
     # ==========================================
     # Interactive Actions (Add/Remove/Select)
     # ==========================================
@@ -118,6 +129,7 @@ class ColabTradingDashboard:
             self._init_stock_feeds()
             self.active_symbol = sym
             print(f"\n[WATCHLIST] Added {sym} to scanner.")
+            self._refresh_display()
 
     def remove_stock(self, symbol: Optional[str] = None):
         sym = str(symbol).strip().upper() if symbol else self.active_symbol
@@ -126,11 +138,13 @@ class ColabTradingDashboard:
             if self.active_symbol == sym:
                 self.active_symbol = self.watchlist[0]
             print(f"\n[WATCHLIST] Removed {sym} from scanner.")
+            self._refresh_display()
 
     def select_stock(self, symbol: str):
         sym = str(symbol).strip().upper()
         if sym in self.watchlist:
             self.active_symbol = sym
+            self._refresh_display()
 
     def toggle_mode(self):
         if self.mode == "PAPER":
@@ -145,6 +159,7 @@ class ColabTradingDashboard:
             self.mode = "PAPER"
             self.live_trader.dry_run = True
             print("\n[INFO] Switched to SAFE PAPER TRADING MODE (Simulation).")
+        self._refresh_display()
 
     def emergency_square_off(self):
         now_str = datetime.now().strftime("%H:%M:%S")
@@ -165,6 +180,7 @@ class ColabTradingDashboard:
             })
         self.positions.clear()
         print("\n[SAFETY] All open positions squared off immediately.")
+        self._refresh_display()
 
     # ==========================================
     # High-Contrast Dark UI HTML Generators
@@ -265,7 +281,7 @@ class ColabTradingDashboard:
                 </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-                <span style="color:#8b949e;font-size:11px;font-weight:bold;margin-right:6px;">WATCHLIST ({len(self.watchlist)} STOCKS):</span>
+                <span style="color:#58a6ff;font-size:11px;font-weight:bold;margin-right:6px;">👆 CLICK STOCK TO SWITCH ({len(self.watchlist)} STOCKS):</span>
                 {pills}
             </div>
         </div>
@@ -339,9 +355,9 @@ class ColabTradingDashboard:
                 pos_badge = '<span style="color:#6e7681;font-size:11px;">⚪ FLAT</span>'
 
             rows += f"""
-            <tr style="background:{row_bg};border-bottom:1px solid #21262d;">
+            <tr onclick="jsSelectStock('{sym}')" style="background:{row_bg};border-bottom:1px solid #21262d;cursor:pointer;" title="Click to view {sym} chart and metrics">
                 <td style="padding:8px 12px;font-weight:bold;">
-                    <a href="javascript:void(0)" onclick="jsSelectStock('{sym}')" style="color:#58a6ff;text-decoration:none;font-size:13px;">{sym}</a>
+                    <span style="color:#58a6ff;font-size:13px;font-weight:bold;">{sym}</span>
                     {' <span style="color:#e3b341;font-size:10px;">★ ACTIVE</span>' if is_active else ''}
                 </td>
                 <td style="padding:8px 12px;color:#f0f6fc;font-weight:bold;font-size:13px;">₹{price:,.2f}</td>
