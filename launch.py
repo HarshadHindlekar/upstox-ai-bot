@@ -96,11 +96,19 @@ def main():
 ===================================================================
     """)
 
+    # Enable Google Colab widget manager immediately so widgets render without prompts
+    try:
+        from google.colab import output
+        output.enable_custom_widget_manager()
+    except Exception:
+        pass
+
     # 0. Auto-sync repository to latest git code
     try:
         subprocess.run("git pull origin main", shell=True, capture_output=True)
     except Exception:
         pass
+
 
     # 1. Drive Mount
     setup_colab_drive()
