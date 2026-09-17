@@ -56,15 +56,24 @@ class RiskManager:
             return False
         return True
 
-    def calculate_position_size(self, current_price: float) -> Tuple[int, float, float]:
+    def calculate_position_size(self, current_price: float, action: str = "BUY") -> Tuple[int, float, float]:
         """
         Calculates safe share quantity, stop-loss price, and take-profit price.
+        Supports both Long (BUY) and Short (SELL) positions.
         Risk is capped at risk_per_trade_pct of available capital.
         """
-        stop_loss_price = round(current_price * (1.0 - (self.stop_loss_pct / 100.0)), 2)
-        take_profit_price = round(current_price * (1.0 + (self.take_profit_pct / 100.0)), 2)
+        act = action.upper()
+        if act == "SELL":
+            # For short position: Stop loss is above entry, take profit is below entry
+            stop_loss_price = round(current_price * (1.0 + (self.stop_loss_pct / 100.0)), 2)
+            take_profit_price = round(current_price * (1.0 - (self.take_profit_pct / 100.0)), 2)
+            risk_amount_per_share = max(stop_loss_price - current_price, 0.01)
+        else:
+            # For long position: Stop loss is below entry, take profit is above entry
+            stop_loss_price = round(current_price * (1.0 - (self.stop_loss_pct / 100.0)), 2)
+            take_profit_price = round(current_price * (1.0 + (self.take_profit_pct / 100.0)), 2)
+            risk_amount_per_share = max(current_price - stop_loss_price, 0.01)
 
-        risk_amount_per_share = max(current_price - stop_loss_price, 0.01)
         total_risk_budget = self.max_capital * (self.risk_per_trade_pct / 100.0)
 
         # Quantity based on risk budget
@@ -75,6 +84,13 @@ class RiskManager:
         final_quantity = max(1, min(qty, max_shares_affordable))
 
         return final_quantity, stop_loss_price, take_profit_price
+
+    @staticmethod
+    def calculate_trade_pnl(action: str, entry_price: float, exit_price: float, quantity: int) -> float:
+        """Calculates realized PnL for Long (BUY) or Short (SELL) position."""
+        if action.upper() == "SELL":
+            return (entry_price - exit_price) * quantity
+        return (exit_price - entry_price) * quantity
 
     def update_pnl(self, trade_pnl: float):
         """Updates realized daily PnL after a closed trade."""

@@ -172,9 +172,10 @@ class DataEngine:
         stop_loss_pct: float = 0.0025,
     ) -> pd.DataFrame:
         """
-        Creates trading classification targets:
-        1 = Buy signal (future high hits profit target before low hits stop loss)
-        0 = Hold / Neutral / Downward movement
+        Creates bi-directional trading classification targets:
+        1 = Buy / Long signal (future high hits profit target before low hits stop loss)
+        2 = Sell / Short signal (future low hits short profit target before high hits short stop loss)
+        0 = Hold / Neutral / Sideways movement
         """
         df = df.copy()
         labels = []
@@ -186,17 +187,51 @@ class DataEngine:
                 continue
 
             current_close = df.loc[i, "close"]
-            future_highs = df.loc[i + 1 : i + lookahead_bars, "high"]
-            future_lows = df.loc[i + 1 : i + lookahead_bars, "low"]
+            future_highs = df.loc[i + 1 : i + lookahead_bars, "high"].values
+            future_lows = df.loc[i + 1 : i + lookahead_bars, "low"].values
 
-            target_price = current_close * (1 + profit_target_pct)
-            stop_price = current_close * (1 - stop_loss_pct)
+            # Bull (Long) levels: target is above, stop is below
+            bull_target = current_close * (1 + profit_target_pct)
+            bull_stop = current_close * (1 - stop_loss_pct)
 
-            hit_target = (future_highs >= target_price).any()
-            hit_stop = (future_lows <= stop_price).any()
+            # Bear (Short) levels: target is below, stop is above
+            bear_target = current_close * (1 - profit_target_pct)
+            bear_stop = current_close * (1 + stop_loss_pct)
 
-            if hit_target and not hit_stop:
+            # Find earliest bar reaching bull levels
+            bull_win_bar = -1
+            bull_loss_bar = -1
+            for bar_idx in range(len(future_highs)):
+                if future_highs[bar_idx] >= bull_target and bull_win_bar == -1:
+                    bull_win_bar = bar_idx
+                if future_lows[bar_idx] <= bull_stop and bull_loss_bar == -1:
+                    bull_loss_bar = bar_idx
+
+            is_bull = (bull_win_bar != -1) and (bull_loss_bar == -1 or bull_win_bar < bull_loss_bar)
+
+            # Find earliest bar reaching bear levels
+            bear_win_bar = -1
+            bear_loss_bar = -1
+            for bar_idx in range(len(future_lows)):
+                if future_lows[bar_idx] <= bear_target and bear_win_bar == -1:
+                    bear_win_bar = bar_idx
+                if future_highs[bar_idx] >= bear_stop and bear_loss_bar == -1:
+                    bear_loss_bar = bar_idx
+
+            is_bear = (bear_win_bar != -1) and (bear_loss_bar == -1 or bear_win_bar < bear_loss_bar)
+
+            if is_bull and not is_bear:
                 labels.append(1)
+            elif is_bear and not is_bull:
+                labels.append(2)
+            elif is_bull and is_bear:
+                # If both targets reached within window, pick the earlier one
+                if bull_win_bar < bear_win_bar:
+                    labels.append(1)
+                elif bear_win_bar < bull_win_bar:
+                    labels.append(2)
+                else:
+                    labels.append(0)
             else:
                 labels.append(0)
 

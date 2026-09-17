@@ -164,11 +164,21 @@ class ColabTradingDashboard:
         now_str = datetime.now().strftime("%H:%M:%S")
         for sym, pos in list(self.positions.items()):
             cur_price = self.stock_signals.get(sym, {}).get("price", pos["entry_price"])
-            pnl = (cur_price - pos["entry_price"]) * pos["quantity"]
+            pos_act = pos.get("action", "BUY").upper()
+            if pos_act == "SELL":
+                pnl = (pos["entry_price"] - cur_price) * pos["quantity"]
+                exit_order_type = "BUY"
+                pos_type = "SHORT"
+            else:
+                pnl = (cur_price - pos["entry_price"]) * pos["quantity"]
+                exit_order_type = "SELL"
+                pos_type = "LONG"
+
             self.risk_manager.update_pnl(pnl)
             self.paper_trader.trade_history.append({
                 "symbol": sym,
-                "action": "SELL",
+                "position_type": pos_type,
+                "action": exit_order_type,
                 "quantity": pos["quantity"],
                 "entry_price": pos["entry_price"],
                 "exit_price": cur_price,
@@ -181,10 +191,11 @@ class ColabTradingDashboard:
                 inst_key = config.DEFAULT_INSTRUMENT_KEY if sym == "RELIANCE" else f"NSE_EQ|{sym}"
                 self.live_trader.place_order(
                     instrument_token=inst_key,
-                    transaction_type="SELL",
+                    transaction_type=exit_order_type,
                     quantity=pos["quantity"],
                     order_type="MARKET",
                     product="I",
+                    is_exit=True,
                 )
         self.positions.clear()
         print("\n[SAFETY] All open positions squared off immediately.")
@@ -242,10 +253,17 @@ class ColabTradingDashboard:
         pos_str = "⚪ Flat (No Open Position)"
         sl_tp_str = "Waiting for high-confidence AI signal"
         if pos:
-            pos_str = f"🟢 LONG {pos['quantity']}x @ ₹{pos['entry_price']:.2f}"
-            sl_tp_str = f"SL: ₹{pos['stop_loss']:.2f} | TP: ₹{pos['take_profit']:.2f}"
+            pos_act = pos.get("action", "BUY").upper()
+            if pos_act == "SELL":
+                pos_str = f"🔴 SHORT {pos['quantity']}x @ ₹{pos['entry_price']:.2f}"
+                sl_tp_str = f"SL: ₹{pos['stop_loss']:.2f} (+0.8%) | TP: ₹{pos['take_profit']:.2f} (-1.6%)"
+            else:
+                pos_str = f"🟢 LONG {pos['quantity']}x @ ₹{pos['entry_price']:.2f}"
+                sl_tp_str = f"SL: ₹{pos['stop_loss']:.2f} (-0.8%) | TP: ₹{pos['take_profit']:.2f} (+1.6%)"
 
         open_positions_count = len(self.positions)
+        sig_color = "#3fb950" if signal == "BUY" else "#f85149" if signal == "SELL" else "#8b949e"
+        sig_label = "🟢 BUY" if signal == "BUY" else "🔴 SELL" if signal == "SELL" else "HOLD"
 
         return f"""
         <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:12px;">
@@ -261,15 +279,15 @@ class ColabTradingDashboard:
             </div>
             <div style="background:#161b22;border:1px solid #30363d;padding:12px 16px;border-radius:8px;">
                 <div id="card-pos-title" style="font-size:12px;color:#8b949e;font-weight:600;">{sym} ACTIVE POSITION</div>
-                <div id="card-pos" style="font-size:14px;font-weight:bold;color:#58a6ff;margin:6px 0;">{pos_str}</div>
+                <div id="card-pos" style="font-size:14px;font-weight:bold;color:{'#f85149' if pos and pos.get('action') == 'SELL' else '#3fb950' if pos else '#58a6ff'};margin:6px 0;">{pos_str}</div>
                 <div id="card-sl-tp" style="font-size:11px;color:#8b949e;">{sl_tp_str}</div>
             </div>
             <div style="background:#161b22;border:1px solid #30363d;padding:12px 16px;border-radius:8px;">
                 <div id="card-signal-title" style="font-size:12px;color:#8b949e;font-weight:600;">{sym} AI SIGNAL</div>
-                <div id="card-signal" style="font-size:20px;font-weight:bold;color:{'#3fb950' if signal == 'BUY' else '#8b949e'};margin:4px 0;">
-                    {signal} ({confidence * 100:.1f}%)
+                <div id="card-signal" style="font-size:20px;font-weight:bold;color:{sig_color};margin:4px 0;">
+                    {sig_label} ({confidence * 100:.1f}%)
                 </div>
-                <div style="font-size:11px;color:#8b949e;">Auto-Buy Threshold: > {self.model.confidence_threshold * 100:.0f}%</div>
+                <div style="font-size:11px;color:#8b949e;">Auto-Trade Threshold: > {self.model.confidence_threshold * 100:.0f}%</div>
             </div>
         </div>
         """
@@ -282,7 +300,11 @@ class ColabTradingDashboard:
             bg = "#1f6feb" if is_active else "#21262d"
             txt = "#ffffff" if is_active else "#c9d1d9"
             border = "#58a6ff" if is_active else "#30363d"
-            has_pos = "🟢 " if sym in self.positions else ""
+            if sym in self.positions:
+                pos_act = self.positions[sym].get("action", "BUY").upper()
+                has_pos = "🔴 " if pos_act == "SELL" else "🟢 "
+            else:
+                has_pos = ""
             pills += f"""<button type="button" class="stock-pill" data-sym="{sym}" onclick="jsSelectStock('{sym}')" style="background:{bg};color:{txt};border:1px solid {border};padding:4px 10px;border-radius:14px;cursor:pointer;font-weight:bold;font-size:11px;margin:2px;">{has_pos}{sym}</button>"""
 
         mode_btn_txt = "Switch to LIVE (Real Money)" if self.mode == "PAPER" else "Switch to PAPER (Simulation)"
@@ -345,11 +367,17 @@ class ColabTradingDashboard:
 
             if signal == "BUY":
                 sig_badge = '<span style="background:#238636;color:#ffffff;padding:3px 8px;border-radius:10px;font-weight:bold;font-size:11px;">🟢 BUY</span>'
+            elif signal == "SELL":
+                sig_badge = '<span style="background:#da3633;color:#ffffff;padding:3px 8px;border-radius:10px;font-weight:bold;font-size:11px;">🔴 SELL</span>'
             else:
                 sig_badge = '<span style="color:#8b949e;font-weight:bold;font-size:11px;">HOLD</span>'
 
             if sym in self.positions:
-                pos_badge = '<span style="background:#8957e5;color:#ffffff;padding:3px 8px;border-radius:10px;font-weight:bold;font-size:11px;">🟢 LONG</span>'
+                pos_act = self.positions[sym].get("action", "BUY").upper()
+                if pos_act == "SELL":
+                    pos_badge = '<span style="background:#da3633;color:#ffffff;padding:3px 8px;border-radius:10px;font-weight:bold;font-size:11px;">🔴 SHORT</span>'
+                else:
+                    pos_badge = '<span style="background:#8957e5;color:#ffffff;padding:3px 8px;border-radius:10px;font-weight:bold;font-size:11px;">🟢 LONG</span>'
             else:
                 pos_badge = '<span style="color:#6e7681;font-size:11px;">⚪ FLAT</span>'
 
@@ -388,17 +416,21 @@ class ColabTradingDashboard:
     def _update_trade_table(self):
         trades = self.paper_trader.trade_history
         if not trades:
-            self.trade_table_str = "<div style='padding:10px;color:#8b949e;background:#161b22;border:1px solid #30363d;border-radius:8px;font-size:12px;'>No completed trades yet. The bot is actively scanning for >65% confidence AI breakouts.</div>"
+            self.trade_table_str = "<div style='padding:10px;color:#8b949e;background:#161b22;border:1px solid #30363d;border-radius:8px;font-size:12px;'>No completed trades yet. The bot is actively scanning for >65% confidence AI breakouts and breakdowns.</div>"
             return
 
         rows = ""
         for t in reversed(trades[-5:]):
             pnl = t["pnl"]
             pnl_color = "#3fb950" if pnl >= 0 else "#f85149"
+            pos_type = t.get("position_type", "SHORT" if t.get("action") == "BUY" and "SHORT" in str(t.get("reason", "")) else "LONG")
+            type_bg = "#da3633" if pos_type == "SHORT" else "#238636"
+            type_badge = f'<span style="background:{type_bg};color:#ffffff;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:bold;">{pos_type}</span>'
+
             rows += f"""
             <tr style="border-bottom:1px solid #21262d;background:#161b22;">
                 <td style='padding:7px 10px;color:#8b949e;'>{t.get('exit_time', '')}</td>
-                <td style='padding:7px 10px;font-weight:bold;color:#58a6ff;'>{t.get('symbol', '')}</td>
+                <td style='padding:7px 10px;font-weight:bold;color:#58a6ff;'>{t.get('symbol', '')} {type_badge}</td>
                 <td style='padding:7px 10px;color:#f0f6fc;'>{t.get('quantity', 1)} shares</td>
                 <td style='padding:7px 10px;color:#f0f6fc;'>₹{t.get('entry_price', 0):.2f}</td>
                 <td style='padding:7px 10px;color:#f0f6fc;'>₹{t.get('exit_price', 0):.2f}</td>
@@ -460,24 +492,41 @@ class ColabTradingDashboard:
                 pos = self.positions[sym]
                 low_price = float(current_bar["low"])
                 high_price = float(current_bar["high"])
+                pos_act = pos.get("action", "BUY").upper()
 
                 exit_price = None
                 reason = None
 
-                if low_price <= pos["stop_loss"]:
-                    exit_price = pos["stop_loss"]
-                    reason = "STOP_LOSS_HIT"
-                elif high_price >= pos["take_profit"]:
-                    exit_price = pos["take_profit"]
-                    reason = "TAKE_PROFIT_HIT"
+                if pos_act == "SELL":
+                    # Short Position: Stop loss if price spikes above SL; Take profit if drops below TP
+                    if high_price >= pos["stop_loss"]:
+                        exit_price = pos["stop_loss"]
+                        reason = "STOP_LOSS_HIT"
+                    elif low_price <= pos["take_profit"]:
+                        exit_price = pos["take_profit"]
+                        reason = "TAKE_PROFIT_HIT"
+                    pnl = (pos["entry_price"] - exit_price) * pos["quantity"] if exit_price is not None else 0.0
+                    exit_order_type = "BUY"
+                    pos_type = "SHORT"
+                else:
+                    # Long Position: Stop loss if price drops below SL; Take profit if rises above TP
+                    if low_price <= pos["stop_loss"]:
+                        exit_price = pos["stop_loss"]
+                        reason = "STOP_LOSS_HIT"
+                    elif high_price >= pos["take_profit"]:
+                        exit_price = pos["take_profit"]
+                        reason = "TAKE_PROFIT_HIT"
+                    pnl = (exit_price - pos["entry_price"]) * pos["quantity"] if exit_price is not None else 0.0
+                    exit_order_type = "SELL"
+                    pos_type = "LONG"
 
                 if exit_price is not None:
-                    pnl = (exit_price - pos["entry_price"]) * pos["quantity"]
                     self.risk_manager.update_pnl(pnl)
 
                     trade_record = {
                         "symbol": sym,
-                        "action": "SELL",
+                        "position_type": pos_type,
+                        "action": exit_order_type,
                         "quantity": pos["quantity"],
                         "entry_price": pos["entry_price"],
                         "exit_price": exit_price,
@@ -491,24 +540,26 @@ class ColabTradingDashboard:
                         inst_key = config.DEFAULT_INSTRUMENT_KEY if sym == "RELIANCE" else f"NSE_EQ|{sym}"
                         self.live_trader.place_order(
                             instrument_token=inst_key,
-                            transaction_type="SELL",
+                            transaction_type=exit_order_type,
                             quantity=pos["quantity"],
                             order_type="MARKET",
                             product="I",
+                            is_exit=True,
                         )
                     del self.positions[sym]
 
-            # 2. Automatic Entry Detection (AI Threshold > 65%)
+            # 2. Automatic Entry Detection (AI Threshold > 65% for BUY or SELL)
             signal = "HOLD"
             proba = 0.50
             if not self.is_paused and not self.risk_manager.kill_switch_triggered:
                 signal, proba = self.model.predict_signal(feat_subset)
                 # If confidence > 65% and not already holding, AUTOMATICALLY TRADE!
-                if signal == "BUY" and sym not in self.positions and len(self.positions) < 4:
-                    qty, sl, tp = self.risk_manager.calculate_position_size(close_price)
+                if signal in ["BUY", "SELL"] and sym not in self.positions and len(self.positions) < 4:
+                    qty, sl, tp = self.risk_manager.calculate_position_size(close_price, action=signal)
                     exec_qty = max(1, qty // 3)
                     self.positions[sym] = {
                         "symbol": sym,
+                        "action": signal,
                         "quantity": exec_qty,
                         "entry_price": close_price,
                         "stop_loss": sl,
@@ -519,7 +570,7 @@ class ColabTradingDashboard:
                         inst_key = config.DEFAULT_INSTRUMENT_KEY if sym == "RELIANCE" else f"NSE_EQ|{sym}"
                         self.live_trader.place_order(
                             instrument_token=inst_key,
-                            transaction_type="BUY",
+                            transaction_type=signal,
                             quantity=exec_qty,
                             order_type="MARKET",
                             product="I",
@@ -691,19 +742,29 @@ class ColabTradingDashboard:
                 if (ltpTitle) ltpTitle.innerText = sym + ' CURRENT LTP';
                 var sigEl = document.getElementById('card-signal');
                 if (sigEl) {{
-                    sigEl.innerText = d.signal + ' (' + d.confidence + '%)';
-                    sigEl.style.color = d.signal === 'BUY' ? '#3fb950' : '#8b949e';
+                    var sigBadge = d.signal === 'BUY' ? '🟢 BUY' : (d.signal === 'SELL' ? '🔴 SELL' : 'HOLD');
+                    sigEl.innerText = sigBadge + ' (' + d.confidence + '%)';
+                    sigEl.style.color = d.signal === 'BUY' ? '#3fb950' : (d.signal === 'SELL' ? '#f85149' : '#8b949e');
                 }}
                 var sigTitle = document.getElementById('card-signal-title');
                 if (sigTitle) sigTitle.innerText = sym + ' AI SIGNAL';
                 var posEl = document.getElementById('card-pos');
+                var slTpEl = document.getElementById('card-sl-tp');
                 if (posEl) {{
                     if (d.pos) {{
-                        posEl.innerText = '🟢 LONG ' + d.pos.quantity + 'x @ ₹' + d.pos.entry_price.toFixed(2);
-                        posEl.style.color = '#3fb950';
+                        if (d.pos.action === 'SELL') {{
+                            posEl.innerText = '🔴 SHORT ' + d.pos.quantity + 'x @ ₹' + d.pos.entry_price.toFixed(2);
+                            posEl.style.color = '#f85149';
+                            if (slTpEl) slTpEl.innerText = 'SL: ₹' + d.pos.stop_loss.toFixed(2) + ' (+0.8%) | TP: ₹' + d.pos.take_profit.toFixed(2) + ' (-1.6%)';
+                        }} else {{
+                            posEl.innerText = '🟢 LONG ' + d.pos.quantity + 'x @ ₹' + d.pos.entry_price.toFixed(2);
+                            posEl.style.color = '#3fb950';
+                            if (slTpEl) slTpEl.innerText = 'SL: ₹' + d.pos.stop_loss.toFixed(2) + ' (-0.8%) | TP: ₹' + d.pos.take_profit.toFixed(2) + ' (+1.6%)';
+                        }}
                     }} else {{
                         posEl.innerText = '⚪ Flat (No Open Position)';
                         posEl.style.color = '#58a6ff';
+                        if (slTpEl) slTpEl.innerText = 'Waiting for high-confidence AI signal';
                     }}
                 }}
                 var posTitle = document.getElementById('card-pos-title');

@@ -32,9 +32,10 @@ class LiveTrader:
         price: float = 0.0,
         trigger_price: float = 0.0,
         product: str = "I",  # 'I' for Intraday (MIS), 'D' for Delivery (CNC)
+        is_exit: bool = False,
     ) -> Dict[str, Any]:
         """Places an order through Upstox API v2."""
-        if not self.risk_manager.can_open_new_trade():
+        if not is_exit and not self.risk_manager.can_open_new_trade():
             print("[LIVE TRADER] Blocked: Risk manager or daily kill-switch is active.")
             return {"status": "blocked", "reason": "kill_switch_active"}
 

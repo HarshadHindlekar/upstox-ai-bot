@@ -11,13 +11,17 @@ An end-to-end Machine Learning algorithmic trading system integrated with **Upst
 ## 🌟 Key Highlights
 
 - **⚡ Google Colab Ready (1-Click Run)**: Train, backtest, and run without local GPU or software setup.
+- **🔄 Continuous Bi-Directional AI Engine (Bull + Bear)**:
+  - Continuously scans 20+ liquid NSE stocks every tick for real-time market mood detection.
+  - Automatically takes **BUY (Long)** positions during bullish breakouts and **SELL (Short)** positions during bearish breakdowns.
+  - Generates profits in both rising AND falling markets with full intraday MIS (`product="I"`) compliance.
 - **💾 Google Drive Persistence**: Automatically mounts Google Drive to `/MyDrive/upstox_ai_bot/` to store trained LightGBM models (`.joblib`), datasets, and trade logs permanently across Colab sessions.
-- **🧠 Quantitative Machine Learning**: Features engineered across multi-timeframe EMA, RSI, MACD, Bollinger Bands, and ATR volatility with a high-precision **LightGBM** classifier.
+- **🧠 Quantitative Machine Learning**: Features engineered across multi-timeframe EMA, RSI, MACD, Bollinger Bands, and ATR volatility with a 3-class **LightGBM** classifier (`BUY`, `SELL`, `HOLD`) calibrated for >65% confidence entries.
 - **🛡️ Built-in Risk Management**:
-  - Auto Stop-Loss & Take-Profit calculation.
+  - Auto Stop-Loss & Take-Profit calculation (with inverted levels for Short positions: SL `+0.8%`, TP `-1.6%`).
   - Position sizing based on account capital and risk percentage.
   - **Hard Daily Loss Kill-Switch**: Automatically halts trading if daily drawdown crosses threshold.
-- **🖥️ In-Colab Live Interactive Dashboard**: Renders real-time candlestick & EMA charts, live P&L counters, and an **Emergency Square-Off** button directly in the notebook cell — actively streaming updates to prevent Colab idle timeouts!
+- **🖥️ In-Colab Live Interactive Dashboard**: Renders real-time candlestick & EMA charts, live P&L counters, `🟢 LONG` vs `🔴 SHORT` badges, and an **Emergency Square-Off** button directly in the notebook cell!
 - **🎮 Safe Simulation Mode**: Default Paper Trading engine lets you test strategies with zero real capital risk.
 
 ---

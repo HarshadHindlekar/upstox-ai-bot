@@ -42,22 +42,37 @@ class Backtester:
                 entry_price = position["entry_price"]
                 sl = position["sl"]
                 tp = position["tp"]
+                pos_action = position.get("action", "BUY")
 
                 exit_price = None
                 exit_reason = None
 
-                if low <= sl:
-                    exit_price = sl * (1 - self.slippage_pct)
-                    exit_reason = "STOP_LOSS"
-                elif high >= tp:
-                    exit_price = tp * (1 - self.slippage_pct)
-                    exit_reason = "TAKE_PROFIT"
-                elif i == len(df) - 1:  # End of backtest
-                    exit_price = current_close * (1 - self.slippage_pct)
-                    exit_reason = "MARKET_CLOSE"
+                if pos_action == "SELL":
+                    # Short position exit
+                    if high >= sl:
+                        exit_price = sl * (1 + self.slippage_pct)
+                        exit_reason = "STOP_LOSS"
+                    elif low <= tp:
+                        exit_price = tp * (1 + self.slippage_pct)
+                        exit_reason = "TAKE_PROFIT"
+                    elif i == len(df) - 1:
+                        exit_price = current_close * (1 + self.slippage_pct)
+                        exit_reason = "MARKET_CLOSE"
+                    gross_pnl = (entry_price - exit_price) * qty if exit_price is not None else 0.0
+                else:
+                    # Long position exit
+                    if low <= sl:
+                        exit_price = sl * (1 - self.slippage_pct)
+                        exit_reason = "STOP_LOSS"
+                    elif high >= tp:
+                        exit_price = tp * (1 - self.slippage_pct)
+                        exit_reason = "TAKE_PROFIT"
+                    elif i == len(df) - 1:
+                        exit_price = current_close * (1 - self.slippage_pct)
+                        exit_reason = "MARKET_CLOSE"
+                    gross_pnl = (exit_price - entry_price) * qty if exit_price is not None else 0.0
 
                 if exit_price is not None:
-                    gross_pnl = (exit_price - entry_price) * qty
                     fees = (self.brokerage_per_order * 2) + (exit_price * qty * 0.00025)  # STT & fees
                     net_pnl = gross_pnl - fees
                     current_capital += net_pnl
@@ -66,6 +81,7 @@ class Backtester:
                     trades.append({
                         "entry_time": position["entry_time"],
                         "exit_time": timestamp,
+                        "position_type": "SHORT" if pos_action == "SELL" else "LONG",
                         "entry_price": entry_price,
                         "exit_price": exit_price,
                         "qty": qty,
@@ -83,10 +99,12 @@ class Backtester:
                 feat_subset = df.iloc[: i + 1]
                 signal, proba = self.model.predict_signal(feat_subset)
 
-                if signal == "BUY" and self.risk_manager.can_open_new_trade():
-                    qty, sl, tp = self.risk_manager.calculate_position_size(current_close)
-                    entry_price = current_close * (1 + self.slippage_pct)
+                if signal in ["BUY", "SELL"] and self.risk_manager.can_open_new_trade():
+                    qty, sl, tp = self.risk_manager.calculate_position_size(current_close, action=signal)
+                    entry_slip = (1 + self.slippage_pct) if signal == "BUY" else (1 - self.slippage_pct)
+                    entry_price = current_close * entry_slip
                     position = {
+                        "action": signal,
                         "entry_price": entry_price,
                         "qty": qty,
                         "sl": sl,

@@ -37,24 +37,39 @@ class PaperTrader:
             qty = pos["quantity"]
             sl = pos["stop_loss"]
             tp = pos["take_profit"]
+            pos_action = pos.get("action", "BUY").upper()
 
             exit_price = None
             reason = None
 
-            if low_price <= sl:
-                exit_price = sl
-                reason = "STOP_LOSS_HIT"
-            elif high_price >= tp:
-                exit_price = tp
-                reason = "TAKE_PROFIT_HIT"
+            if pos_action == "SELL":
+                # Short Position: Stop loss hit if price spikes above SL; Take profit if drops below TP
+                if high_price >= sl:
+                    exit_price = sl
+                    reason = "STOP_LOSS_HIT"
+                elif low_price <= tp:
+                    exit_price = tp
+                    reason = "TAKE_PROFIT_HIT"
+                pnl = (entry_price - exit_price) * qty if exit_price is not None else 0.0
+                exit_action = "BUY"
+            else:
+                # Long Position: Stop loss hit if price drops below SL; Take profit if rises above TP
+                if low_price <= sl:
+                    exit_price = sl
+                    reason = "STOP_LOSS_HIT"
+                elif high_price >= tp:
+                    exit_price = tp
+                    reason = "TAKE_PROFIT_HIT"
+                pnl = (exit_price - entry_price) * qty if exit_price is not None else 0.0
+                exit_action = "SELL"
 
             if exit_price is not None:
-                pnl = (exit_price - entry_price) * qty
                 self.risk_manager.update_pnl(pnl)
 
                 record = {
                     "symbol": self.symbol,
-                    "action": "SELL",
+                    "position_type": "SHORT" if pos_action == "SELL" else "LONG",
+                    "action": exit_action,
                     "quantity": qty,
                     "entry_price": entry_price,
                     "exit_price": exit_price,
@@ -67,7 +82,7 @@ class PaperTrader:
                 self.trade_history.append(record)
                 self._save_journal()
                 print(
-                    f"[{timestamp}] [PAPER EXIT] {reason} | Price: {exit_price:.2f} | "
+                    f"[{timestamp}] [PAPER EXIT] {record['position_type']} {reason} | Price: {exit_price:.2f} | "
                     f"PnL: ₹{pnl:+.2f} | Daily PnL: ₹{self.risk_manager.daily_realized_pnl:+.2f}"
                 )
                 self.current_position = None
@@ -78,19 +93,20 @@ class PaperTrader:
                 return
 
             signal, proba = self.model.predict_signal(feature_df)
-            if signal == "BUY":
-                qty, sl, tp = self.risk_manager.calculate_position_size(close_price)
+            if signal in ["BUY", "SELL"]:
+                qty, sl, tp = self.risk_manager.calculate_position_size(close_price, action=signal)
                 self.current_position = {
                     "symbol": self.symbol,
-                    "action": "BUY",
+                    "action": signal,
                     "quantity": qty,
                     "entry_price": close_price,
                     "stop_loss": sl,
                     "take_profit": tp,
                     "entry_time": str(timestamp),
                 }
+                pos_type = "SHORT" if signal == "SELL" else "LONG"
                 print(
-                    f"[{timestamp}] [PAPER ENTRY] BUY {qty}x {self.symbol} @ {close_price:.2f} | "
+                    f"[{timestamp}] [PAPER ENTRY] {signal} ({pos_type}) {qty}x {self.symbol} @ {close_price:.2f} | "
                     f"SL: {sl:.2f} | TP: {tp:.2f} | AI Conf: {proba * 100:.1f}%"
                 )
 

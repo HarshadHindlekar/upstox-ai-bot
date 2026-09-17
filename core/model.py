@@ -38,7 +38,7 @@ class TradingModel:
         test_size: float = 0.2,
     ) -> Dict[str, Any]:
         """
-        Trains LightGBM classifier on labeled time-series data without lookahead bias.
+        Trains LightGBM classifier on labeled time-series data for bi-directional trading (BUY, SELL, HOLD).
         """
         X = df[self.FEATURE_COLUMNS]
         y = df["target"]
@@ -48,7 +48,11 @@ class TradingModel:
         X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
         y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
 
+        num_classes = max(3, len(np.unique(y)))
+
         self.model = LGBMClassifier(
+            objective="multiclass",
+            num_class=num_classes,
             n_estimators=150,
             learning_rate=0.03,
             max_depth=5,
@@ -63,21 +67,15 @@ class TradingModel:
         self.model.fit(X_train, y_train)
 
         # Evaluate
-        y_pred_proba = self.model.predict_proba(X_test)[:, 1]
-        y_pred = (y_pred_proba >= self.confidence_threshold).astype(int)
-
-        try:
-            auc = roc_auc_score(y_test, y_pred_proba)
-        except Exception:
-            auc = 0.5
-
+        y_pred = self.model.predict(X_test)
         report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
         metrics = {
-            "test_auc": float(auc),
-            "precision": float(report.get("1", {}).get("precision", 0.0)),
-            "recall": float(report.get("1", {}).get("recall", 0.0)),
-            "f1": float(report.get("1", {}).get("f1-score", 0.0)),
+            "accuracy": float(report.get("accuracy", 0.0)),
+            "bull_precision": float(report.get("1", {}).get("precision", 0.0)),
+            "bull_recall": float(report.get("1", {}).get("recall", 0.0)),
+            "bear_precision": float(report.get("2", {}).get("precision", 0.0)),
+            "bear_recall": float(report.get("2", {}).get("recall", 0.0)),
             "train_samples": len(X_train),
             "test_samples": len(X_test),
         }
@@ -106,7 +104,7 @@ class TradingModel:
 
     def predict_signal(self, current_features_df: pd.DataFrame) -> Tuple[str, float]:
         """
-        Predicts trading signal ('BUY' or 'HOLD') and model probability score.
+        Predicts trading signal ('BUY', 'SELL', or 'HOLD') and confidence score.
         Takes latest bar row.
         """
         if self.model is None:
@@ -114,8 +112,15 @@ class TradingModel:
                 raise ValueError("Model is not trained or loaded. Run training first.")
 
         X = current_features_df[self.FEATURE_COLUMNS].iloc[[-1]]
-        proba = float(self.model.predict_proba(X)[0, 1])
+        probas = self.model.predict_proba(X)[0]
+        class_probas = dict(zip(self.model.classes_, probas))
 
-        if proba >= self.confidence_threshold:
-            return "BUY", proba
-        return "HOLD", proba
+        p_buy = float(class_probas.get(1, 0.0))
+        p_sell = float(class_probas.get(2, 0.0))
+
+        if p_buy >= self.confidence_threshold and p_buy > p_sell:
+            return "BUY", p_buy
+        elif p_sell >= self.confidence_threshold and p_sell > p_buy:
+            return "SELL", p_sell
+        else:
+            return "HOLD", max(p_buy, p_sell)
