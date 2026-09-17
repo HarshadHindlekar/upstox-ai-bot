@@ -138,8 +138,15 @@ upstox-ai-bot/
 │   └── live_trader.py              # Upstox API live order execution
 ├── notebooks/
 │   └── upstox_ai_colab.ipynb       # One-click Google Colab notebook
+├── TODO.md                         # Future roadmap & planned features
 └── README.md
 ```
+
+---
+
+## 🗺️ Roadmap & Future Enhancements
+
+Future development milestones, including Telegram/Discord alerts, mobile notifications, and portfolio polish, are actively tracked in [TODO.md](TODO.md).
 
 ---
 
