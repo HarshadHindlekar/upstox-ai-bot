@@ -177,6 +177,15 @@ class ColabTradingDashboard:
                 "entry_time": pos["entry_time"],
                 "exit_time": now_str,
             })
+            if self.mode == "LIVE":
+                inst_key = config.DEFAULT_INSTRUMENT_KEY if sym == "RELIANCE" else f"NSE_EQ|{sym}"
+                self.live_trader.place_order(
+                    instrument_token=inst_key,
+                    transaction_type="SELL",
+                    quantity=pos["quantity"],
+                    order_type="MARKET",
+                    product="I",
+                )
         self.positions.clear()
         print("\n[SAFETY] All open positions squared off immediately.")
         self._refresh_display()
@@ -478,6 +487,15 @@ class ColabTradingDashboard:
                         "exit_time": now_str,
                     }
                     self.paper_trader.trade_history.append(trade_record)
+                    if self.mode == "LIVE":
+                        inst_key = config.DEFAULT_INSTRUMENT_KEY if sym == "RELIANCE" else f"NSE_EQ|{sym}"
+                        self.live_trader.place_order(
+                            instrument_token=inst_key,
+                            transaction_type="SELL",
+                            quantity=pos["quantity"],
+                            order_type="MARKET",
+                            product="I",
+                        )
                     del self.positions[sym]
 
             # 2. Automatic Entry Detection (AI Threshold > 65%)
@@ -488,14 +506,24 @@ class ColabTradingDashboard:
                 # If confidence > 65% and not already holding, AUTOMATICALLY TRADE!
                 if signal == "BUY" and sym not in self.positions and len(self.positions) < 4:
                     qty, sl, tp = self.risk_manager.calculate_position_size(close_price)
+                    exec_qty = max(1, qty // 3)
                     self.positions[sym] = {
                         "symbol": sym,
-                        "quantity": max(1, qty // 3),
+                        "quantity": exec_qty,
                         "entry_price": close_price,
                         "stop_loss": sl,
                         "take_profit": tp,
                         "entry_time": now_str,
                     }
+                    if self.mode == "LIVE":
+                        inst_key = config.DEFAULT_INSTRUMENT_KEY if sym == "RELIANCE" else f"NSE_EQ|{sym}"
+                        self.live_trader.place_order(
+                            instrument_token=inst_key,
+                            transaction_type="BUY",
+                            quantity=exec_qty,
+                            order_type="MARKET",
+                            product="I",
+                        )
 
             self.stock_signals[sym] = {
                 "price": close_price,
