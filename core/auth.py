@@ -111,7 +111,9 @@ class UpstoxAuth:
 
         target_paths = [
             Path(".env"),
+            config.DRIVE_BASE_DIR / ".env",
             Path("/content/drive/MyDrive/upstox_ai_bot/.env"),
+            Path("/content/drive/MyDrive/upstox ai bot/.env"),
         ]
 
         for env_path in target_paths:
@@ -185,8 +187,10 @@ class UpstoxAuth:
         """Saves configured credentials to both local and Google Drive .env files."""
         target_paths = [
             Path(".env"),
+            config.DRIVE_BASE_DIR / ".env",
+            config.DRIVE_BASE_DIR / "env",
             Path("/content/drive/MyDrive/upstox_ai_bot/.env"),
-            Path("/content/drive/MyDrive/upstox_ai_bot/env"),
+            Path("/content/drive/MyDrive/upstox ai bot/.env"),
         ]
         for env_path in target_paths:
             try:

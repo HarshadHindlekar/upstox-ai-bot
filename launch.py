@@ -69,63 +69,127 @@ def ensure_dependencies():
 
 
 def sync_configuration():
-    """Loads .env from Google Drive across all common naming variations."""
+    """Loads and normalizes credentials from Google Drive across all variations."""
     drive_mount = Path("/content/drive/MyDrive")
     local_env = Path(".env")
 
-    search_dirs = [
-        drive_mount / "upstox ai bot",
-        drive_mount / "upstox_ai_bot",
-        drive_mount / "upstox-ai-bot",
-        drive_mount,
-    ]
-    candidate_files = [".env", "env", ".env.txt", "env.txt", ".env.env"]
-    found_drive_env = None
+    if not drive_mount.exists():
+        log("Google Drive is not mounted at /content/drive/MyDrive", status="INFO")
+        return
 
-    for d in search_dirs:
-        if d.exists():
-            for fname in candidate_files:
-                p = d / fname
-                if p.is_file() and p.stat().st_size > 10:
+    # Find candidate folders in Drive
+    candidate_dirs = []
+    try:
+        for entry in drive_mount.iterdir():
+            if entry.is_dir():
+                name_lower = entry.name.lower()
+                if any(kw in name_lower for kw in ["upstox", "trading", "bot"]):
+                    candidate_dirs.append(entry)
+    except Exception:
+        pass
+
+    for p in [drive_mount / "upstox_ai_bot", drive_mount / "upstox ai bot", drive_mount]:
+        if p.exists() and p not in candidate_dirs:
+            candidate_dirs.append(p)
+
+    log(f"Drive search locations: {[d.name for d in candidate_dirs]}", status="INFO")
+
+    found_creds = {}
+    found_file = None
+    dummy_vals = ["", "your_api_key_here", "your_api_secret_here", "none", "your_token_here", "null"]
+
+    for d in candidate_dirs:
+        try:
+            files_in_dir = [f for f in d.iterdir() if f.is_file()]
+            # Log files found inside the project folders for clear visibility
+            if d != drive_mount:
+                log(f"Drive folder '{d.name}' contains: {[f.name for f in files_in_dir]}", status="INFO")
+
+            for f in files_in_dir:
+                # Skip large files (models, data sets, logs)
+                if f.stat().st_size > 100_000:
+                    continue
+
+                # Read with multiple encodings to handle Windows Notepad UTF-16 / BOM
+                content = None
+                for enc in ["utf-8", "utf-8-sig", "utf-16", "latin-1"]:
                     try:
-                        text = p.read_text(encoding="utf-8", errors="ignore")
-                        if "UPSTOX" in text:
-                            found_drive_env = p
+                        content = f.read_text(encoding=enc)
+                        if content and len(content.strip()) > 0:
                             break
                     except Exception:
                         pass
-        if found_drive_env:
-            break
 
-    # Broad search in Drive root if not found
-    if not found_drive_env and drive_mount.exists():
-        try:
-            for item in drive_mount.glob("*/*"):
-                if item.name.lower() in candidate_files and item.is_file() and item.stat().st_size > 10:
-                    try:
-                        text = item.read_text(encoding="utf-8", errors="ignore")
-                        if "UPSTOX" in text:
-                            found_drive_env = item
-                            break
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                if not content:
+                    continue
 
-    if found_drive_env:
-        log(f"Found saved credentials in Google Drive: {found_drive_env}", status="SUCCESS")
-        try:
-            import shutil
-            shutil.copy(found_drive_env, local_env)
+                # Parse key-value lines
+                parsed = {}
+                for line in content.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip().upper()
+                        v = v.strip().strip('"').strip("'")
+                        parsed[k] = v
+
+                # Detect API Key & Secret with flexible key naming
+                api_key = (
+                    parsed.get("UPSTOX_API_KEY")
+                    or parsed.get("API_KEY")
+                    or parsed.get("CLIENT_ID")
+                    or parsed.get("UPSTOX_CLIENT_ID")
+                )
+                api_secret = (
+                    parsed.get("UPSTOX_API_SECRET")
+                    or parsed.get("API_SECRET")
+                    or parsed.get("SECRET")
+                    or parsed.get("UPSTOX_SECRET")
+                )
+                redirect_uri = (
+                    parsed.get("UPSTOX_REDIRECT_URI")
+                    or parsed.get("UPSTOX_REDIRECT_URL")
+                    or parsed.get("UPSTOX_REDTRECT_URL")
+                    or parsed.get("REDIRECT_URI")
+                    or parsed.get("REDIRECT_URL")
+                )
+                access_token = (
+                    parsed.get("UPSTOX_ACCESS_TOKEN")
+                    or parsed.get("ACCESS_TOKEN")
+                )
+
+                if api_key and api_key.lower() not in dummy_vals and len(api_key) > 5:
+                    found_creds["UPSTOX_API_KEY"] = api_key
+                    if api_secret and api_secret.lower() not in dummy_vals:
+                        found_creds["UPSTOX_API_SECRET"] = api_secret
+                    if redirect_uri:
+                        found_creds["UPSTOX_REDIRECT_URI"] = redirect_uri
+                    if access_token and access_token.lower() not in dummy_vals:
+                        found_creds["UPSTOX_ACCESS_TOKEN"] = access_token
+                    found_file = f
+                    break
+
+            if found_file:
+                break
         except Exception as e:
-            log(f"Could not copy credentials: {e}", status="WARN")
-    elif not local_env.exists() and Path(".env.example").exists():
-        log("Creating default configuration from .env.example...", status="INFO")
+            log(f"Could not inspect {d}: {e}", status="WARN")
+
+    if found_file and "UPSTOX_API_KEY" in found_creds:
+        log(f"Found saved credentials in Google Drive: {found_file}", status="SUCCESS")
+        env_lines = []
+        for k, v in found_creds.items():
+            env_lines.append(f"{k}={v}\n")
+            os.environ[k] = v
+
         try:
-            import shutil
-            shutil.copy(Path(".env.example"), local_env)
-        except Exception:
-            pass
+            local_env.write_text("".join(env_lines), encoding="utf-8")
+            log("Loaded credentials into local runtime environment.", status="SUCCESS")
+        except Exception as e:
+            log(f"Could not write local .env: {e}", status="WARN")
+    else:
+        log("No valid credential file found in Drive. Checked .env / env files.", status="WARN")
 
 
 def main():
