@@ -77,65 +77,62 @@ def sync_configuration():
         log("Google Drive is not mounted at /content/drive/MyDrive", status="INFO")
         return
 
-    # Find candidate folders in Drive
-    candidate_dirs = []
-    try:
-        for entry in drive_mount.iterdir():
-            if entry.is_dir():
-                name_lower = entry.name.lower()
-                if any(kw in name_lower for kw in ["upstox", "trading", "bot"]):
-                    candidate_dirs.append(entry)
-    except Exception:
-        pass
-
-    for p in [drive_mount / "upstox_ai_bot", drive_mount / "upstox ai bot", drive_mount]:
-        if p.exists() and p not in candidate_dirs:
-            candidate_dirs.append(p)
-
-    log(f"Drive search locations: {[d.name for d in candidate_dirs]}", status="INFO")
+    # Invalidate Colab Drive FUSE cache by listing with hidden files (-a)
+    for folder_name in ["upstox_ai_bot", "upstox ai bot"]:
+        target_dir = drive_mount / folder_name
+        if target_dir.exists():
+            try:
+                subprocess.run(["ls", "-la", str(target_dir)], capture_output=True, timeout=5)
+            except Exception:
+                pass
 
     found_creds = {}
     found_file = None
     dummy_vals = ["", "your_api_key_here", "your_api_secret_here", "none", "your_token_here", "null"]
 
-    for d in candidate_dirs:
-        try:
-            files_in_dir = [f for f in d.iterdir() if f.is_file()]
-            # Log files found inside the project folders for clear visibility
-            if d != drive_mount:
-                log(f"Drive folder '{d.name}' contains: {[f.name for f in files_in_dir]}", status="INFO")
-
-            for f in files_in_dir:
-                # Skip large files (models, data sets, logs)
-                if f.stat().st_size > 100_000:
-                    continue
-
-                # Read with multiple encodings to handle Windows Notepad UTF-16 / BOM
+    def try_parse_file(file_path: Path) -> bool:
+        nonlocal found_file, found_creds
+        for enc in ["utf-8", "utf-8-sig", "utf-16", "latin-1"]:
+            try:
                 content = None
-                for enc in ["utf-8", "utf-8-sig", "utf-16", "latin-1"]:
-                    try:
-                        content = f.read_text(encoding=enc)
-                        if content and len(content.strip()) > 0:
-                            break
-                    except Exception:
-                        pass
+                try:
+                    with open(file_path, "r", encoding=enc) as f:
+                        content = f.read()
+                except Exception:
+                    # Fallback to Path.read_text
+                    content = file_path.read_text(encoding=enc, errors="ignore")
 
-                if not content:
+                if not content or len(content.strip()) < 5:
                     continue
 
-                # Parse key-value lines
                 parsed = {}
+                # Try JSON format first
+                try:
+                    import json
+                    json_data = json.loads(content)
+                    if isinstance(json_data, dict):
+                        for k, v in json_data.items():
+                            parsed[str(k).strip().upper()] = str(v).strip().strip('"').strip("'")
+                except Exception:
+                    pass
+
+                # Try key-value format (KEY=VALUE or KEY: VALUE or export KEY=VALUE)
                 for line in content.splitlines():
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
+                    if line.startswith("export "):
+                        line = line[7:].strip()
                     if "=" in line:
                         k, v = line.split("=", 1)
-                        k = k.strip().upper()
-                        v = v.strip().strip('"').strip("'")
-                        parsed[k] = v
+                        # Strip trailing comments
+                        v = v.split("#")[0].strip()
+                        parsed[k.strip().upper()] = v.strip().strip('"').strip("'")
+                    elif ":" in line and not line.startswith("http"):
+                        k, v = line.split(":", 1)
+                        v = v.split("#")[0].strip()
+                        parsed[k.strip().upper()] = v.strip().strip('"').strip("'")
 
-                # Detect API Key & Secret with flexible key naming
                 api_key = (
                     parsed.get("UPSTOX_API_KEY")
                     or parsed.get("API_KEY")
@@ -168,13 +165,60 @@ def sync_configuration():
                         found_creds["UPSTOX_REDIRECT_URI"] = redirect_uri
                     if access_token and access_token.lower() not in dummy_vals:
                         found_creds["UPSTOX_ACCESS_TOKEN"] = access_token
-                    found_file = f
-                    break
+                    found_file = file_path
+                    return True
+            except Exception:
+                continue
+        return False
 
+    # 1. Direct candidate paths (direct open bypasses FUSE readdir dotfile hiding)
+    direct_candidates = [
+        drive_mount / "upstox_ai_bot" / ".env",
+        drive_mount / "upstox ai bot" / ".env",
+        drive_mount / "upstox_ai_bot" / "env",
+        drive_mount / "upstox ai bot" / "env",
+        drive_mount / "upstox_ai_bot" / ".env.txt",
+        drive_mount / "upstox ai bot" / ".env.txt",
+        drive_mount / "upstox_ai_bot" / "env.txt",
+        drive_mount / "upstox ai bot" / "env.txt",
+        drive_mount / ".env",
+        drive_mount / "env",
+        drive_mount / ".env.txt",
+    ]
+
+    for candidate in direct_candidates:
+        if try_parse_file(candidate):
+            log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
+            break
+
+    # 2. If not found via direct paths, do broader folder search
+    if not found_file:
+        candidate_dirs = [
+            drive_mount / "upstox_ai_bot",
+            drive_mount / "upstox ai bot",
+            drive_mount,
+        ]
+        try:
+            for entry in drive_mount.iterdir():
+                if entry.is_dir():
+                    name_lower = entry.name.lower()
+                    if any(kw in name_lower for kw in ["upstox", "trading", "bot"]) and entry not in candidate_dirs:
+                        candidate_dirs.append(entry)
+        except Exception:
+            pass
+
+        for d in candidate_dirs:
+            if not d.exists():
+                continue
+            try:
+                for item in d.iterdir():
+                    if item.is_file() and item.stat().st_size < 100_000:
+                        if try_parse_file(item):
+                            break
+            except Exception:
+                pass
             if found_file:
                 break
-        except Exception as e:
-            log(f"Could not inspect {d}: {e}", status="WARN")
 
     if found_file and "UPSTOX_API_KEY" in found_creds:
         log(f"Found saved credentials in Google Drive: {found_file}", status="SUCCESS")
@@ -185,7 +229,7 @@ def sync_configuration():
 
         try:
             local_env.write_text("".join(env_lines), encoding="utf-8")
-            log("Loaded credentials into local runtime environment.", status="SUCCESS")
+            log(f"Loaded credentials into environment (API Key: {found_creds['UPSTOX_API_KEY'][:6]}...).", status="SUCCESS")
         except Exception as e:
             log(f"Could not write local .env: {e}", status="WARN")
     else:
