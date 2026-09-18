@@ -99,14 +99,14 @@ def sync_configuration():
                     with open(file_path, "r", encoding=enc) as f:
                         content = f.read()
                 except Exception:
-                    # Fallback to Path.read_text
                     content = file_path.read_text(encoding=enc, errors="ignore")
 
                 if not content or len(content.strip()) < 5:
                     continue
 
+                log(f"Reading Drive file: {file_path} ({len(content)} chars)", status="INFO")
+
                 parsed = {}
-                # Try JSON format first
                 try:
                     import json
                     json_data = json.loads(content)
@@ -116,7 +116,6 @@ def sync_configuration():
                 except Exception:
                     pass
 
-                # Try key-value format (KEY=VALUE or KEY: VALUE or export KEY=VALUE)
                 for line in content.splitlines():
                     line = line.strip()
                     if not line or line.startswith("#"):
@@ -125,7 +124,6 @@ def sync_configuration():
                         line = line[7:].strip()
                     if "=" in line:
                         k, v = line.split("=", 1)
-                        # Strip trailing comments
                         v = v.split("#")[0].strip()
                         parsed[k.strip().upper()] = v.strip().strip('"').strip("'")
                     elif ":" in line and not line.startswith("http"):
@@ -157,7 +155,13 @@ def sync_configuration():
                     or parsed.get("ACCESS_TOKEN")
                 )
 
-                if api_key and api_key.lower() not in dummy_vals and len(api_key) > 5:
+                if not api_key:
+                    log(f"In '{file_path.name}': No UPSTOX_API_KEY line found. Keys present: {list(parsed.keys())}", status="WARN")
+                    return False
+                elif api_key.lower() in dummy_vals:
+                    log(f"In '{file_path.name}': UPSTOX_API_KEY is dummy placeholder '{api_key}'. Real key needed.", status="WARN")
+                    return False
+                else:
                     found_creds["UPSTOX_API_KEY"] = api_key
                     if api_secret and api_secret.lower() not in dummy_vals:
                         found_creds["UPSTOX_API_SECRET"] = api_secret
@@ -171,7 +175,7 @@ def sync_configuration():
                 continue
         return False
 
-    # 1. Direct candidate paths (direct open bypasses FUSE readdir dotfile hiding)
+    # 1. Direct candidate paths
     direct_candidates = [
         drive_mount / "upstox_ai_bot" / ".env",
         drive_mount / "upstox ai bot" / ".env",
@@ -183,13 +187,33 @@ def sync_configuration():
         drive_mount / "upstox ai bot" / "env.txt",
         drive_mount / ".env",
         drive_mount / "env",
-        drive_mount / ".env.txt",
     ]
 
     for candidate in direct_candidates:
-        if try_parse_file(candidate):
-            log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
-            break
+        if candidate.exists() or candidate.is_file():
+            if try_parse_file(candidate):
+                log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
+                break
+        else:
+            try:
+                if try_parse_file(candidate):
+                    log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
+                    break
+            except Exception:
+                pass
+
+    # If not found, try force-remounting Google Drive once to refresh web UI uploads
+    if not found_file and is_colab():
+        try:
+            from google.colab import drive
+            log("Refreshing Google Drive cache for newly uploaded files...", status="INFO")
+            drive.mount("/content/drive", force_remount=True)
+            for candidate in direct_candidates:
+                if try_parse_file(candidate):
+                    log(f"Loaded credentials after Drive refresh from: {candidate}", status="SUCCESS")
+                    break
+        except Exception:
+            pass
 
     # 2. If not found via direct paths, do broader folder search
     if not found_file:
