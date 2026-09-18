@@ -173,6 +173,53 @@ class UpstoxAuth:
             return False
         return False
 
+    @staticmethod
+    def is_invalid_key(val: Optional[str]) -> bool:
+        """Returns True if the key is missing or a dummy placeholder."""
+        if not val:
+            return True
+        v = str(val).strip().strip('"').strip("'").lower()
+        return v in ["", "your_api_key_here", "your_api_secret_here", "your_token_here", "none"]
+
+    def _save_credentials_to_env(self, api_key: str, api_secret: str, redirect_uri: str):
+        """Saves configured credentials to both local and Google Drive .env files."""
+        target_paths = [
+            Path(".env"),
+            Path("/content/drive/MyDrive/upstox_ai_bot/.env"),
+            Path("/content/drive/MyDrive/upstox_ai_bot/env"),
+        ]
+        for env_path in target_paths:
+            try:
+                env_path.parent.mkdir(parents=True, exist_ok=True)
+                lines = []
+                keys_updated = set()
+                if env_path.exists():
+                    with open(env_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.startswith("UPSTOX_API_KEY="):
+                                lines.append(f"UPSTOX_API_KEY={api_key}\n")
+                                keys_updated.add("UPSTOX_API_KEY")
+                            elif line.startswith("UPSTOX_API_SECRET="):
+                                lines.append(f"UPSTOX_API_SECRET={api_secret}\n")
+                                keys_updated.add("UPSTOX_API_SECRET")
+                            elif line.startswith("UPSTOX_REDIRECT_URI=") or line.startswith("UPSTOX_REDIRECT_URL="):
+                                lines.append(f"UPSTOX_REDIRECT_URI={redirect_uri}\n")
+                                keys_updated.add("UPSTOX_REDIRECT_URI")
+                            else:
+                                lines.append(line)
+                if "UPSTOX_API_KEY" not in keys_updated:
+                    lines.append(f"UPSTOX_API_KEY={api_key}\n")
+                if "UPSTOX_API_SECRET" not in keys_updated:
+                    lines.append(f"UPSTOX_API_SECRET={api_secret}\n")
+                if "UPSTOX_REDIRECT_URI" not in keys_updated:
+                    lines.append(f"UPSTOX_REDIRECT_URI={redirect_uri}\n")
+
+                with open(env_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
+                print(f"[AUTH] Saved credentials to: {env_path}")
+            except Exception as e:
+                print(f"[AUTH] Could not save credentials to {env_path}: {e}")
+
     def ensure_valid_token_interactive(self) -> bool:
         """
         Self-healing authentication check:
@@ -184,20 +231,40 @@ class UpstoxAuth:
         # Step 1: Check existing token
         tok = self.load_cached_token()
         if tok and self.validate_token(tok):
-            print("\033[92m[✓ SUCCESS] Upstox Access Token is active, valid, and connected!\033[0m")
+            print("\033[92m[SUCCESS] Upstox Access Token is active, valid, and connected!\033[0m")
             return True
 
-        if not self.api_key or not self.api_secret:
-            print("\033[93m[! WARN] UPSTOX_API_KEY or SECRET not set. Running in Paper Trading / Simulation mode.\033[0m")
-            return False
+        # Step 2: Validate API Key & Secret (catch missing or dummy placeholder values)
+        if self.is_invalid_key(self.api_key) or self.is_invalid_key(self.api_secret):
+            print("\n" + "=" * 68)
+            print("  [!] UPSTOX API CREDENTIALS MISSING OR DUMMY PLACEHOLDER DETECTED")
+            print("=" * 68)
+            print("Get your API Key from: https://developer.upstox.com -> My Apps")
+            try:
+                user_key = input("Enter UPSTOX_API_KEY (or press Enter to run in Paper/Demo mode): ").strip().strip('"').strip("'")
+                if not user_key or self.is_invalid_key(user_key):
+                    print("\033[93m[! INFO] No API Key provided. Running in Paper Trading / Simulation mode.\033[0m\n")
+                    return False
+                user_secret = input("Enter UPSTOX_API_SECRET: ").strip().strip('"').strip("'")
+                user_uri = input(f"Enter UPSTOX_REDIRECT_URI [Default: {self.redirect_uri}]: ").strip().strip('"').strip("'")
+
+                self.api_key = user_key
+                self.api_secret = user_secret
+                if user_uri:
+                    self.redirect_uri = user_uri
+
+                self._save_credentials_to_env(self.api_key, self.api_secret, self.redirect_uri)
+            except Exception as e:
+                print(f"\033[93m[! WARN] Prompt failed ({e}). Running in Paper Trading / Simulation mode.\033[0m\n")
+                return False
 
         login_url = self.get_login_url()
 
         print("\n" + "=" * 68)
-        print("  🔑 UPSTOX DAILY SESSION EXPIRED - GENERATE TODAY'S FRESH TOKEN")
+        print("  [!] UPSTOX DAILY SESSION EXPIRED - GENERATE TODAY'S FRESH TOKEN")
         print("=" * 68)
-        print(f"• Active Client ID:    {self.api_key}")
-        print(f"• Active Redirect URI:  {self.redirect_uri}")
+        print(f"* Active Client ID:    {self.api_key}")
+        print(f"* Active Redirect URI:  {self.redirect_uri}")
         print("  (Must match EXACTLY with the Redirect URL in https://developer.upstox.com)")
         print("\n1. Click or open this login URL in your browser:")
         print(f"\n   \033[94m{login_url}\033[0m\n")
@@ -208,7 +275,7 @@ class UpstoxAuth:
             display(HTML(f"""
             <div style="margin:10px 0;">
                 <a href="{login_url}" target="_blank" style="background:#007bff;color:white;padding:8px 16px;text-decoration:none;border-radius:6px;font-weight:bold;">
-                    👉 Click Here to Login to Upstox
+                    [Click Here to Login to Upstox]
                 </a>
             </div>
             """))
@@ -227,10 +294,10 @@ class UpstoxAuth:
                 return False
 
             self.exchange_code_for_token(auth_input)
-            print("\033[92m[✓ SUCCESS] Fresh token acquired, validated, and saved to .env & Google Drive!\033[0m\n")
+            print("\033[92m[SUCCESS] Fresh token acquired, validated, and saved to .env & Google Drive!\033[0m\n")
             return True
         except Exception as e:
-            print(f"\033[91m[✗ ERROR] Failed to exchange token: {e}\033[0m")
+            print(f"\033[91m[ERROR] Failed to exchange token: {e}\033[0m")
             print("\033[93m[! INFO] Falling back to Paper Trading / Simulation mode.\033[0m\n")
             return False
 

@@ -69,15 +69,31 @@ def ensure_dependencies():
 
 
 def sync_configuration():
-    """Loads .env from Google Drive if user stored credentials there."""
-    drive_env = Path("/content/drive/MyDrive/upstox_ai_bot/.env")
+    """Loads .env from Google Drive across all common naming variations."""
+    possible_paths = [
+        Path("/content/drive/MyDrive/upstox_ai_bot/.env"),
+        Path("/content/drive/MyDrive/upstox_ai_bot/env"),
+        Path("/content/drive/MyDrive/upstox_ai_bot/.env.txt"),
+        Path("/content/drive/MyDrive/upstox_ai_bot/env.txt"),
+        Path("/content/drive/MyDrive/upstox ai bot/.env"),
+        Path("/content/drive/MyDrive/upstox ai bot/env"),
+        Path("/content/drive/MyDrive/upstox ai bot/.env.txt"),
+        Path("/content/drive/MyDrive/upstox ai bot/env.txt"),
+        Path("/content/drive/MyDrive/.env"),
+        Path("/content/drive/MyDrive/env"),
+    ]
     local_env = Path(".env")
+    found_drive_env = None
+    for p in possible_paths:
+        if p.exists() and p.is_file():
+            found_drive_env = p
+            break
 
-    if drive_env.exists():
-        log(f"Found saved credentials in Google Drive: {drive_env}", status="SUCCESS")
+    if found_drive_env:
+        log(f"Found saved credentials in Google Drive: {found_drive_env}", status="SUCCESS")
         try:
             import shutil
-            shutil.copy(drive_env, local_env)
+            shutil.copy(found_drive_env, local_env)
         except Exception:
             pass
     elif not local_env.exists() and Path(".env.example").exists():
