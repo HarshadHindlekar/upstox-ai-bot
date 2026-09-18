@@ -51,10 +51,15 @@ def init_storage(mount_drive: bool = True):
 
 
 # Upstox API credentials
-UPSTOX_API_KEY = os.getenv("UPSTOX_API_KEY", "")
-UPSTOX_API_SECRET = os.getenv("UPSTOX_API_SECRET", "")
-UPSTOX_REDIRECT_URI = os.getenv("UPSTOX_REDIRECT_URI") or os.getenv("UPSTOX_REDIRECT_URL") or "https://127.0.0.1:5000/"
-UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+UPSTOX_API_KEY = (os.getenv("UPSTOX_API_KEY") or "").strip().strip('"').strip("'")
+UPSTOX_API_SECRET = (os.getenv("UPSTOX_API_SECRET") or "").strip().strip('"').strip("'")
+UPSTOX_REDIRECT_URI = (
+    os.getenv("UPSTOX_REDIRECT_URI")
+    or os.getenv("UPSTOX_REDIRECT_URL")
+    or os.getenv("UPSTOX_REDTRECT_URL")
+    or "http://127.0.0.1:8000/auth/callback"
+).strip().strip('"').strip("'")
+UPSTOX_ACCESS_TOKEN = (os.getenv("UPSTOX_ACCESS_TOKEN") or "").strip().strip('"').strip("'")
 
 # Automated login (optional)
 UPSTOX_USER_ID = os.getenv("UPSTOX_USER_ID", "")

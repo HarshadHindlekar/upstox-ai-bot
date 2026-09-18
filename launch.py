@@ -118,7 +118,11 @@ def main():
 
     # 3. Environment & Directories
     sync_configuration()
+    import importlib
     import config
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    importlib.reload(config)
     config.init_storage(mount_drive=True)
     log(f"Storage path ready at: {config.DATA_DIR.parent}", status="SUCCESS")
 

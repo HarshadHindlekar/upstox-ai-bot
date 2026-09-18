@@ -30,9 +30,11 @@ class UpstoxAuth:
 
     def get_login_url(self) -> str:
         """Returns the login URL for user authorization."""
+        clean_key = (self.api_key or "").strip().strip('"').strip("'")
+        clean_uri = (self.redirect_uri or "").strip().strip('"').strip("'")
         params = {
-            "client_id": self.api_key,
-            "redirect_uri": self.redirect_uri,
+            "client_id": clean_key,
+            "redirect_uri": clean_uri,
             "response_type": "code",
         }
         return f"{self.AUTH_URL}?{urllib.parse.urlencode(params)}"
@@ -191,9 +193,12 @@ class UpstoxAuth:
 
         login_url = self.get_login_url()
 
-        print("\n" + "=" * 65)
-        print("  🔑 UPSTOX TOKEN EXPIRED OR MISSING - GENERATE FRESH TOKEN")
-        print("=" * 65)
+        print("\n" + "=" * 68)
+        print("  🔑 UPSTOX DAILY SESSION EXPIRED - GENERATE TODAY'S FRESH TOKEN")
+        print("=" * 68)
+        print(f"• Active Client ID:    {self.api_key}")
+        print(f"• Active Redirect URI:  {self.redirect_uri}")
+        print("  (Must match EXACTLY with the Redirect URL in https://developer.upstox.com)")
         print("\n1. Click or open this login URL in your browser:")
         print(f"\n   \033[94m{login_url}\033[0m\n")
 
@@ -212,8 +217,8 @@ class UpstoxAuth:
 
         print("2. Log into Upstox and authorize the app.")
         print("3. After login, copy the full redirected URL from your browser address bar.")
-        print("   (e.g., http://127.0.0.1:8000/auth/callback?code=XXXXXX)")
-        print("-" * 65)
+        print(f"   (e.g., {self.redirect_uri}?code=XXXXXX)")
+        print("-" * 68)
 
         try:
             auth_input = input("\nPaste the authorization code or full redirected URL (or press Enter to skip for demo): ").strip()
