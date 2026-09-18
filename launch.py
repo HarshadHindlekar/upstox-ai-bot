@@ -70,32 +70,55 @@ def ensure_dependencies():
 
 def sync_configuration():
     """Loads .env from Google Drive across all common naming variations."""
-    possible_paths = [
-        Path("/content/drive/MyDrive/upstox_ai_bot/.env"),
-        Path("/content/drive/MyDrive/upstox_ai_bot/env"),
-        Path("/content/drive/MyDrive/upstox_ai_bot/.env.txt"),
-        Path("/content/drive/MyDrive/upstox_ai_bot/env.txt"),
-        Path("/content/drive/MyDrive/upstox ai bot/.env"),
-        Path("/content/drive/MyDrive/upstox ai bot/env"),
-        Path("/content/drive/MyDrive/upstox ai bot/.env.txt"),
-        Path("/content/drive/MyDrive/upstox ai bot/env.txt"),
-        Path("/content/drive/MyDrive/.env"),
-        Path("/content/drive/MyDrive/env"),
-    ]
+    drive_mount = Path("/content/drive/MyDrive")
     local_env = Path(".env")
+
+    search_dirs = [
+        drive_mount / "upstox ai bot",
+        drive_mount / "upstox_ai_bot",
+        drive_mount / "upstox-ai-bot",
+        drive_mount,
+    ]
+    candidate_files = [".env", "env", ".env.txt", "env.txt", ".env.env"]
     found_drive_env = None
-    for p in possible_paths:
-        if p.exists() and p.is_file():
-            found_drive_env = p
+
+    for d in search_dirs:
+        if d.exists():
+            for fname in candidate_files:
+                p = d / fname
+                if p.is_file() and p.stat().st_size > 10:
+                    try:
+                        text = p.read_text(encoding="utf-8", errors="ignore")
+                        if "UPSTOX" in text:
+                            found_drive_env = p
+                            break
+                    except Exception:
+                        pass
+        if found_drive_env:
             break
+
+    # Broad search in Drive root if not found
+    if not found_drive_env and drive_mount.exists():
+        try:
+            for item in drive_mount.glob("*/*"):
+                if item.name.lower() in candidate_files and item.is_file() and item.stat().st_size > 10:
+                    try:
+                        text = item.read_text(encoding="utf-8", errors="ignore")
+                        if "UPSTOX" in text:
+                            found_drive_env = item
+                            break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     if found_drive_env:
         log(f"Found saved credentials in Google Drive: {found_drive_env}", status="SUCCESS")
         try:
             import shutil
             shutil.copy(found_drive_env, local_env)
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"Could not copy credentials: {e}", status="WARN")
     elif not local_env.exists() and Path(".env.example").exists():
         log("Creating default configuration from .env.example...", status="INFO")
         try:
@@ -135,9 +158,9 @@ def main():
     # 3. Environment & Directories
     sync_configuration()
     import importlib
-    import config
     from dotenv import load_dotenv
-    load_dotenv(override=True)
+    load_dotenv(Path(".env"), override=True)
+    import config
     importlib.reload(config)
     config.init_storage(mount_drive=True)
     log(f"Storage path ready at: {config.DATA_DIR.parent}", status="SUCCESS")

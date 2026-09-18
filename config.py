@@ -17,7 +17,17 @@ def is_google_colab() -> bool:
 if is_google_colab():
     # If in Colab, persistent paths point to Google Drive
     DRIVE_MOUNT_POINT = Path("/content/drive")
-    DRIVE_BASE_DIR = DRIVE_MOUNT_POINT / "MyDrive" / os.getenv("DRIVE_PROJECT_DIR", "upstox_ai_bot")
+    custom_dir = os.getenv("DRIVE_PROJECT_DIR")
+    if custom_dir:
+        folder_name = custom_dir
+    elif (DRIVE_MOUNT_POINT / "MyDrive" / "upstox ai bot").exists():
+        folder_name = "upstox ai bot"
+    elif (DRIVE_MOUNT_POINT / "MyDrive" / "upstox_ai_bot").exists():
+        folder_name = "upstox_ai_bot"
+    else:
+        folder_name = "upstox_ai_bot"
+
+    DRIVE_BASE_DIR = DRIVE_MOUNT_POINT / "MyDrive" / folder_name
     DATA_DIR = DRIVE_BASE_DIR / "data"
     MODELS_DIR = DRIVE_BASE_DIR / "models"
     LOGS_DIR = DRIVE_BASE_DIR / "logs"
