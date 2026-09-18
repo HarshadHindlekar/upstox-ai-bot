@@ -319,7 +319,10 @@ def main():
         featured_df = DataEngine.calculate_technical_features(raw_df)
         labeled_df = DataEngine.create_labels(featured_df)
         metrics = model.train(labeled_df)
-        log(f"Model trained and saved to Drive! AUC: {metrics['test_auc']:.3f}, F1: {metrics['f1']:.3f}", status="SUCCESS")
+        acc = metrics.get('accuracy', 0.0)
+        bull_p = metrics.get('bull_precision', 0.0)
+        bear_p = metrics.get('bear_precision', 0.0)
+        log(f"Model trained and saved to Drive! Accuracy: {acc:.1%}, Bull Precision: {bull_p:.1%}, Bear Precision: {bear_p:.1%}", status="SUCCESS")
     else:
         log("Existing trained AI model found and loaded from persistent storage.", status="SUCCESS")
 
