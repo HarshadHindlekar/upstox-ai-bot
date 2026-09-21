@@ -69,26 +69,27 @@ def ensure_dependencies():
 
 
 def sync_configuration():
-    """Loads and normalizes credentials from Google Drive across all variations."""
+    """Loads and normalizes credentials from Colab Secrets, local .env, and Google Drive."""
     drive_mount = Path("/content/drive/MyDrive")
     local_env = Path(".env")
-
-    if not drive_mount.exists():
-        log("Google Drive is not mounted at /content/drive/MyDrive", status="INFO")
-        return
-
-    # Invalidate Colab Drive FUSE cache by listing with hidden files (-a)
-    for folder_name in ["upstox_ai_bot", "upstox ai bot"]:
-        target_dir = drive_mount / folder_name
-        if target_dir.exists():
-            try:
-                subprocess.run(["ls", "-la", str(target_dir)], capture_output=True, timeout=5)
-            except Exception:
-                pass
-
     found_creds = {}
     found_file = None
     dummy_vals = ["", "your_api_key_here", "your_api_secret_here", "none", "your_token_here", "null"]
+
+    # 1. Check Google Colab Secrets (🔑 userdata)
+    try:
+        from google.colab import userdata
+        for k in ["UPSTOX_API_KEY", "UPSTOX_API_SECRET", "UPSTOX_REDIRECT_URI", "UPSTOX_ACCESS_TOKEN"]:
+            try:
+                v = userdata.get(k)
+                if v and str(v).strip().lower() not in dummy_vals:
+                    found_creds[k] = str(v).strip().strip('"').strip("'")
+            except Exception:
+                pass
+        if "UPSTOX_API_KEY" in found_creds:
+            log("Loaded credentials from Google Colab Secrets (🔑).", status="SUCCESS")
+    except Exception:
+        pass
 
     def try_parse_file(file_path: Path) -> bool:
         nonlocal found_file, found_creds
@@ -175,45 +176,60 @@ def sync_configuration():
                 continue
         return False
 
-    # 1. Direct candidate paths
-    direct_candidates = [
-        drive_mount / "upstox_ai_bot" / ".env",
-        drive_mount / "upstox ai bot" / ".env",
-        drive_mount / "upstox_ai_bot" / "env",
-        drive_mount / "upstox ai bot" / "env",
-        drive_mount / "upstox_ai_bot" / ".env.txt",
-        drive_mount / "upstox ai bot" / ".env.txt",
-        drive_mount / "upstox_ai_bot" / "env.txt",
-        drive_mount / "upstox ai bot" / "env.txt",
-        drive_mount / ".env",
-        drive_mount / "env",
-    ]
+    # 2. Check local .env file
+    if "UPSTOX_API_KEY" not in found_creds and local_env.exists():
+        if try_parse_file(local_env):
+            log(f"Directly loaded credentials from local repository: {local_env}", status="SUCCESS")
 
-    for candidate in direct_candidates:
-        if candidate.exists() or candidate.is_file():
-            if try_parse_file(candidate):
-                log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
-                break
-        else:
-            try:
+    # 3. If still not found and Drive is mounted, check Drive candidates
+    if "UPSTOX_API_KEY" not in found_creds and drive_mount.exists():
+        # Invalidate Colab Drive FUSE cache by listing with hidden files (-a)
+        for folder_name in ["upstox_ai_bot", "upstox ai bot"]:
+            target_dir = drive_mount / folder_name
+            if target_dir.exists():
+                try:
+                    subprocess.run(["ls", "-la", str(target_dir)], capture_output=True, timeout=5)
+                except Exception:
+                    pass
+
+        direct_candidates = [
+            drive_mount / "upstox_ai_bot" / ".env",
+            drive_mount / "upstox ai bot" / ".env",
+            drive_mount / "upstox_ai_bot" / "env",
+            drive_mount / "upstox ai bot" / "env",
+            drive_mount / "upstox_ai_bot" / ".env.txt",
+            drive_mount / "upstox ai bot" / ".env.txt",
+            drive_mount / "upstox_ai_bot" / "env.txt",
+            drive_mount / "upstox ai bot" / "env.txt",
+            drive_mount / ".env",
+            drive_mount / "env",
+        ]
+
+        for candidate in direct_candidates:
+            if candidate.exists() or candidate.is_file():
                 if try_parse_file(candidate):
                     log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
                     break
+            else:
+                try:
+                    if try_parse_file(candidate):
+                        log(f"Directly loaded credentials from: {candidate}", status="SUCCESS")
+                        break
+                except Exception:
+                    pass
+
+        # If not found, try force-remounting Google Drive once to refresh web UI uploads
+        if not found_file and is_colab():
+            try:
+                from google.colab import drive
+                log("Refreshing Google Drive cache for newly uploaded files...", status="INFO")
+                drive.mount("/content/drive", force_remount=True)
+                for candidate in direct_candidates:
+                    if try_parse_file(candidate):
+                        log(f"Loaded credentials after Drive refresh from: {candidate}", status="SUCCESS")
+                        break
             except Exception:
                 pass
-
-    # If not found, try force-remounting Google Drive once to refresh web UI uploads
-    if not found_file and is_colab():
-        try:
-            from google.colab import drive
-            log("Refreshing Google Drive cache for newly uploaded files...", status="INFO")
-            drive.mount("/content/drive", force_remount=True)
-            for candidate in direct_candidates:
-                if try_parse_file(candidate):
-                    log(f"Loaded credentials after Drive refresh from: {candidate}", status="SUCCESS")
-                    break
-        except Exception:
-            pass
 
     # 2. If not found via direct paths, do broader folder search
     if not found_file:

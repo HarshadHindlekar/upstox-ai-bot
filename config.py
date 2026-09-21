@@ -71,6 +71,23 @@ UPSTOX_REDIRECT_URI = (
 ).strip().strip('"').strip("'")
 UPSTOX_ACCESS_TOKEN = (os.getenv("UPSTOX_ACCESS_TOKEN") or "").strip().strip('"').strip("'")
 
+# Fallback: Support Google Colab Secrets (🔑 userdata)
+if not UPSTOX_API_KEY or not UPSTOX_API_SECRET:
+    try:
+        from google.colab import userdata
+        if not UPSTOX_API_KEY:
+            UPSTOX_API_KEY = (userdata.get("UPSTOX_API_KEY") or "").strip().strip('"').strip("'")
+        if not UPSTOX_API_SECRET:
+            UPSTOX_API_SECRET = (userdata.get("UPSTOX_API_SECRET") or "").strip().strip('"').strip("'")
+        u_uri = userdata.get("UPSTOX_REDIRECT_URI") or userdata.get("UPSTOX_REDIRECT_URL")
+        if u_uri:
+            UPSTOX_REDIRECT_URI = u_uri.strip().strip('"').strip("'")
+        u_tok = userdata.get("UPSTOX_ACCESS_TOKEN")
+        if u_tok and not UPSTOX_ACCESS_TOKEN:
+            UPSTOX_ACCESS_TOKEN = u_tok.strip().strip('"').strip("'")
+    except Exception:
+        pass
+
 # Automated login (optional)
 UPSTOX_USER_ID = os.getenv("UPSTOX_USER_ID", "")
 UPSTOX_PIN = os.getenv("UPSTOX_PIN", "")
