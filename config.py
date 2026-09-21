@@ -15,22 +15,26 @@ def is_google_colab() -> bool:
 
 # Base directory configuration
 if is_google_colab():
-    # If in Colab, persistent paths point to Google Drive
+    # If in Colab, persistent paths point to Google Drive ONLY IF already mounted
     DRIVE_MOUNT_POINT = Path("/content/drive")
-    custom_dir = os.getenv("DRIVE_PROJECT_DIR")
-    if custom_dir:
-        folder_name = custom_dir
-    elif (DRIVE_MOUNT_POINT / "MyDrive" / "upstox ai bot").exists():
-        folder_name = "upstox ai bot"
-    elif (DRIVE_MOUNT_POINT / "MyDrive" / "upstox_ai_bot").exists():
-        folder_name = "upstox_ai_bot"
+    if (DRIVE_MOUNT_POINT / "MyDrive").exists():
+        custom_dir = os.getenv("DRIVE_PROJECT_DIR")
+        if custom_dir:
+            folder_name = custom_dir
+        elif (DRIVE_MOUNT_POINT / "MyDrive" / "upstox ai bot").exists():
+            folder_name = "upstox ai bot"
+        else:
+            folder_name = "upstox_ai_bot"
+        DRIVE_BASE_DIR = DRIVE_MOUNT_POINT / "MyDrive" / folder_name
+        DATA_DIR = DRIVE_BASE_DIR / "data"
+        MODELS_DIR = DRIVE_BASE_DIR / "models"
+        LOGS_DIR = DRIVE_BASE_DIR / "logs"
     else:
-        folder_name = "upstox_ai_bot"
-
-    DRIVE_BASE_DIR = DRIVE_MOUNT_POINT / "MyDrive" / folder_name
-    DATA_DIR = DRIVE_BASE_DIR / "data"
-    MODELS_DIR = DRIVE_BASE_DIR / "models"
-    LOGS_DIR = DRIVE_BASE_DIR / "logs"
+        # Seamless local fallback in Colab container
+        DRIVE_BASE_DIR = BASE_DIR
+        DATA_DIR = BASE_DIR / "data"
+        MODELS_DIR = BASE_DIR / "models"
+        LOGS_DIR = BASE_DIR / "logs"
 else:
     # Local paths
     DATA_DIR = BASE_DIR / "data"
@@ -38,21 +42,15 @@ else:
     LOGS_DIR = BASE_DIR / "logs"
 
 
-def init_storage(mount_drive: bool = True):
-    """
-    Initializes storage directories. In Google Colab, mounts Google Drive
-    to ensure trained models, datasets, and trade journals are preserved.
-    """
+def init_storage(mount_drive: bool = False):
+    """Initializes storage directories without forcing Google Drive mount."""
     if is_google_colab() and mount_drive:
         try:
             from google.colab import drive
             if not os.path.exists("/content/drive/MyDrive"):
-                print("[INFO] Mounting Google Drive for persistent storage...")
                 drive.mount("/content/drive")
-            print(f"[INFO] Google Drive storage root: {DRIVE_BASE_DIR}")
-        except Exception as e:
-            print(f"[WARNING] Could not mount Google Drive automatically: {e}")
-            print("[INFO] Falling back to local Colab container storage.")
+        except Exception:
+            pass
 
     # Create directories if they do not exist
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -60,7 +58,18 @@ def init_storage(mount_drive: bool = True):
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# Upstox API credentials
+# 1. Primary Source for Colab: Google Colab Secrets (🔑 userdata)
+if is_google_colab():
+    try:
+        from google.colab import userdata
+        for key in ["UPSTOX_API_KEY", "UPSTOX_API_SECRET", "UPSTOX_REDIRECT_URI", "UPSTOX_ACCESS_TOKEN"]:
+            val = userdata.get(key)
+            if val and str(val).strip():
+                os.environ[key] = str(val).strip().strip('"').strip("'")
+    except Exception:
+        pass
+
+# 2. Upstox API credentials from environment
 UPSTOX_API_KEY = (os.getenv("UPSTOX_API_KEY") or "").strip().strip('"').strip("'")
 UPSTOX_API_SECRET = (os.getenv("UPSTOX_API_SECRET") or "").strip().strip('"').strip("'")
 UPSTOX_REDIRECT_URI = (
@@ -70,23 +79,6 @@ UPSTOX_REDIRECT_URI = (
     or "http://127.0.0.1:8000/auth/callback"
 ).strip().strip('"').strip("'")
 UPSTOX_ACCESS_TOKEN = (os.getenv("UPSTOX_ACCESS_TOKEN") or "").strip().strip('"').strip("'")
-
-# Fallback: Support Google Colab Secrets (🔑 userdata)
-if not UPSTOX_API_KEY or not UPSTOX_API_SECRET:
-    try:
-        from google.colab import userdata
-        if not UPSTOX_API_KEY:
-            UPSTOX_API_KEY = (userdata.get("UPSTOX_API_KEY") or "").strip().strip('"').strip("'")
-        if not UPSTOX_API_SECRET:
-            UPSTOX_API_SECRET = (userdata.get("UPSTOX_API_SECRET") or "").strip().strip('"').strip("'")
-        u_uri = userdata.get("UPSTOX_REDIRECT_URI") or userdata.get("UPSTOX_REDIRECT_URL")
-        if u_uri:
-            UPSTOX_REDIRECT_URI = u_uri.strip().strip('"').strip("'")
-        u_tok = userdata.get("UPSTOX_ACCESS_TOKEN")
-        if u_tok and not UPSTOX_ACCESS_TOKEN:
-            UPSTOX_ACCESS_TOKEN = u_tok.strip().strip('"').strip("'")
-    except Exception:
-        pass
 
 # Automated login (optional)
 UPSTOX_USER_ID = os.getenv("UPSTOX_USER_ID", "")

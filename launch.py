@@ -33,16 +33,12 @@ def run_cmd(cmd: str, ignore_error: bool = False) -> bool:
 
 
 def setup_colab_drive():
-    """Mounts Google Drive safely, falls back to local if skipped/error."""
-    if "google.colab" in sys.modules or os.path.exists("/content"):
-        log("Google Colab runtime detected. Connecting Google Drive...", status="INFO")
-        try:
-            from google.colab import drive
-            if not os.path.exists("/content/drive/MyDrive"):
-                drive.mount("/content/drive")
-            log("Google Drive successfully mounted!", status="SUCCESS")
-        except Exception as e:
-            log(f"Google Drive mount bypassed ({e}). Falling back to local storage.", status="WARN")
+    """Detects Google Colab environment and logs active storage mode."""
+    if is_colab():
+        if Path("/content/drive/MyDrive").exists():
+            log("Google Drive is mounted and active.", status="SUCCESS")
+        else:
+            log("Running in Google Colab with Secrets (🔑) and high-speed local container storage.", status="SUCCESS")
 
 
 def ensure_dependencies():
@@ -69,27 +65,36 @@ def ensure_dependencies():
 
 
 def sync_configuration():
-    """Loads and normalizes credentials from Colab Secrets, local .env, and Google Drive."""
+    """Loads credentials with Colab Secrets (🔑) as primary source, falling back to local .env and Drive."""
     drive_mount = Path("/content/drive/MyDrive")
     local_env = Path(".env")
     found_creds = {}
     found_file = None
     dummy_vals = ["", "your_api_key_here", "your_api_secret_here", "none", "your_token_here", "null"]
 
-    # 1. Check Google Colab Secrets (🔑 userdata)
-    try:
-        from google.colab import userdata
-        for k in ["UPSTOX_API_KEY", "UPSTOX_API_SECRET", "UPSTOX_REDIRECT_URI", "UPSTOX_ACCESS_TOKEN"]:
-            try:
-                v = userdata.get(k)
-                if v and str(v).strip().lower() not in dummy_vals:
-                    found_creds[k] = str(v).strip().strip('"').strip("'")
-            except Exception:
-                pass
-        if "UPSTOX_API_KEY" in found_creds:
-            log("Loaded credentials from Google Colab Secrets (🔑).", status="SUCCESS")
-    except Exception:
-        pass
+    # 1. PRIMARY SOURCE: Google Colab Secrets (🔑 userdata)
+    if is_colab():
+        try:
+            from google.colab import userdata
+            for k in ["UPSTOX_API_KEY", "UPSTOX_API_SECRET", "UPSTOX_REDIRECT_URI", "UPSTOX_ACCESS_TOKEN"]:
+                try:
+                    v = userdata.get(k)
+                    if v and str(v).strip().lower() not in dummy_vals:
+                        found_creds[k] = str(v).strip().strip('"').strip("'")
+                except Exception:
+                    pass
+            if "UPSTOX_API_KEY" in found_creds:
+                log(f"Successfully loaded credentials from Google Colab Secrets (🔑). (API Key: {found_creds['UPSTOX_API_KEY'][:6]}...)", status="SUCCESS")
+                env_lines = [f"{k}={v}\n" for k, v in found_creds.items()]
+                for k, v in found_creds.items():
+                    os.environ[k] = v
+                try:
+                    local_env.write_text("".join(env_lines), encoding="utf-8")
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
 
     def try_parse_file(file_path: Path) -> bool:
         nonlocal found_file, found_creds
@@ -310,8 +315,8 @@ def main():
     load_dotenv(Path(".env"), override=True)
     import config
     importlib.reload(config)
-    config.init_storage(mount_drive=True)
-    log(f"Storage path ready at: {config.DATA_DIR.parent}", status="SUCCESS")
+    config.init_storage(mount_drive=False)
+    log(f"Storage path ready at: {config.DATA_DIR}", status="SUCCESS")
 
     # 4. Token & Authentication Check (Auto-generates & saves fresh token if expired)
     import importlib
