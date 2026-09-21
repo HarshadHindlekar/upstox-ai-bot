@@ -11,6 +11,11 @@ import subprocess
 from pathlib import Path
 
 
+def is_colab() -> bool:
+    """Checks whether the environment is Google Colab."""
+    return "google.colab" in sys.modules or os.path.exists("/content")
+
+
 def log(msg: str, status: str = "INFO"):
     colors = {
         "INFO": "\033[94m[INFO]\033[0m",
@@ -223,18 +228,6 @@ def sync_configuration():
                 except Exception:
                     pass
 
-        # If not found, try force-remounting Google Drive once to refresh web UI uploads
-        if not found_file and is_colab():
-            try:
-                from google.colab import drive
-                log("Refreshing Google Drive cache for newly uploaded files...", status="INFO")
-                drive.mount("/content/drive", force_remount=True)
-                for candidate in direct_candidates:
-                    if try_parse_file(candidate):
-                        log(f"Loaded credentials after Drive refresh from: {candidate}", status="SUCCESS")
-                        break
-            except Exception:
-                pass
 
     # 2. If not found via direct paths, do broader folder search
     if not found_file:
