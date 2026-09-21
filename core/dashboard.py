@@ -41,12 +41,23 @@ class ColabTradingDashboard:
     - Zero widget dependencies / zero permission popups
     """
 
+    _active_instance = None
+
     def __init__(
         self,
         symbol: str = "RELIANCE",
         use_sample_data: bool = True,
         update_interval_sec: float = 3.0,
     ):
+        # Stop any previous background dashboard instance
+        if ColabTradingDashboard._active_instance is not None:
+            try:
+                ColabTradingDashboard._active_instance.is_running = False
+            except Exception:
+                pass
+        ColabTradingDashboard._active_instance = self
+        self.uid = f"dash_{int(time.time() * 1000) % 1000000}"
+
         self.active_symbol = symbol.upper()
         self.use_sample_data = use_sample_data
         self.update_interval_sec = update_interval_sec
@@ -201,6 +212,15 @@ class ColabTradingDashboard:
         print("\n[SAFETY] All open positions squared off immediately.")
         self._refresh_display()
 
+    def _refresh_display(self):
+        """Refreshes the live dashboard in-place without creating duplicate displays."""
+        if hasattr(self, "display_handle") and self.display_handle is not None:
+            try:
+                from IPython.display import HTML
+                self.display_handle.update(HTML(self.get_full_dashboard_html()))
+            except Exception:
+                pass
+
     def stop(self):
         self.is_running = False
         print("\n[INFO] Bot scanning stopped by user.")
@@ -346,7 +366,7 @@ class ColabTradingDashboard:
                 </div>
             </div>
             <div style="position:relative;width:100%;height:220px;">
-                <canvas id="terminal-chart" width="1020" height="220" style="width:100%;height:220px;background:#0d1117;border-radius:8px;display:block;border:1px solid #21262d;"></canvas>
+                <canvas id="terminal-chart-{self.uid}" class="terminal-chart" width="1020" height="220" style="width:100%;height:220px;background:#0d1117;border-radius:8px;display:block;border:1px solid #21262d;"></canvas>
             </div>
         </div>
         """
@@ -631,7 +651,7 @@ class ColabTradingDashboard:
         window.currentMode = '{self.mode}';
 
         function renderCanvasChart(sym) {{
-            var canvas = document.getElementById('terminal-chart');
+            var canvas = document.getElementById('terminal-chart-{self.uid}') || document.getElementById('terminal-chart');
             if (!canvas) return;
             var ctx = canvas.getContext('2d');
             var d = window.chartData[sym];
@@ -863,7 +883,13 @@ class ColabTradingDashboard:
 
     def render(self, run_loop: bool = True):
         """Renders the complete multi-stock dashboard in Google Colab with in-place zero-flicker updates."""
-        from IPython.display import display, HTML
+        from IPython.display import display, HTML, clear_output
+
+        # Cleanly wipe any old duplicate dashboard outputs from earlier cell runs
+        try:
+            clear_output(wait=True)
+        except Exception:
+            pass
 
         # Initial scan
         self.scan_all_stocks_step()
